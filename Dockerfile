@@ -14,7 +14,7 @@ RUN apt-get -y install tor deb.torproject.org-keyring
 RUN sed -i '57 s/#//' /etc/tor/torrc
 RUN sed -i '61 s/#//' /etc/tor/torrc
 
-ADD run_zeronet.sh /run.sh
+ADD run.sh /run.sh
 RUN chmod 0755 /run.sh
 
 #Slimming down Docker containers
@@ -25,7 +25,6 @@ RUN mv /root/plugins/disabled-UiPassword /root/plugins/UiPassword
 RUN mv /root/plugins/Stats /root/plugins/disabled-Stats
 
 #Set upstart command
-#CMD cd /root && python zeronet.py --ui_ip 0.0.0.0 --ui_password testtest
 CMD ["/run.sh"]
 #CMD cd /root && python zeronet.py --ui_ip 0.0.0.0 --config_file /root/data/zeronet.conf
 
