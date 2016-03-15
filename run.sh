@@ -14,4 +14,4 @@ fi
 
 /usr/bin/tor -f /etc/tor/torrc 2>&1 &
 
-cd /root && python zeronet.py --ui_ip 0.0.0.0 --config_file /root/data/zeronet.conf
+cd /home/zeronet/ZeroNet && sudo -u zeronet python zeronet.py --ui_ip 0.0.0.0 --config_file /home/zeronet/ZeroNet/data/zeronet.conf
