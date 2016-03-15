@@ -4,7 +4,7 @@ MAINTAINER binerf <zeronet@mygaia.org>
 
 # Base settings
 ENV DEBIAN_FRONTEND noninteractive
-ENV HOME /home/zeronet
+#ENV HOME /home/zeronet
 
 # Add a specific user to run zeronet
 RUN     groupadd -r -g 1000 zeronet \
