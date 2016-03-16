@@ -49,6 +49,19 @@ ADD run.sh /run.sh
 RUN chmod 0755 /run.sh
 
 #Slimming down Docker containers
+RUN apt-get purge \
+	cpp \
+	build-essential \
+	eject \
+	g++-4.8 \
+	libstdc++-4.8-dev \
+	make \
+	manpages \
+	manpages-dev \
+	vim-common \
+	vim-tiny \
+	-y
+RUN apt-get autoremove -y
 RUN apt-get clean -y
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
