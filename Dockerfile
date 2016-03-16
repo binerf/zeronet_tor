@@ -44,7 +44,7 @@ RUN apt-get -y install tor deb.torproject.org-keyring
 RUN echo "ControlPort 9051" >> /usr/share/tor/tor-service-defaults-torrc
 RUN mkdir /var/run/tor
 RUN chown debian-tor. /var/run/tor
-RUN chmod 700 /var/run/tor
+RUN chmod 750 /var/run/tor
 # Add user to debian-tor group
 RUN usermod -a -G debian-tor zeronet
 
