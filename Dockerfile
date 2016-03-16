@@ -39,8 +39,9 @@ RUN apt-get -y dist-upgrade
 # Install tor application
 RUN apt-get -y install tor deb.torproject.org-keyring
 # Update tor configuration as required by zeronet
-RUN sed -i '57 s/#//' /etc/tor/torrc
-RUN sed -i '61 s/#//' /etc/tor/torrc
+#RUN sed -i '57 s/#//' /etc/tor/torrc
+#RUN sed -i '61 s/#//' /etc/tor/torrc
+RUN echo "ControlPort 9051" >> /usr/share/tor/tor-service-defaults-torrc
 # Add user to debian-tor group
 RUN usermod -a -G debian-tor zeronet
 
