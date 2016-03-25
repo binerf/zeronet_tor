@@ -5,6 +5,7 @@ import time
 
 import gevent
 
+import util
 from Config import config
 from FileRequest import FileRequest
 from Site import SiteManager
@@ -17,12 +18,13 @@ class FileServer(ConnectionServer):
 
     def __init__(self, ip=config.fileserver_ip, port=config.fileserver_port):
         ConnectionServer.__init__(self, ip, port, self.handleRequest)
-        if config.ip_external:  # Ip external definied in arguments
+        if config.ip_external:  # Ip external defined in arguments
             self.port_opened = True
             SiteManager.peer_blacklist.append((config.ip_external, self.port))  # Add myself to peer blacklist
         else:
             self.port_opened = None  # Is file server opened on router
         self.sites = {}
+        self.last_request = time.time()
 
     # Handle request to fileserver
     def handleRequest(self, connection, message):
@@ -36,6 +38,13 @@ class FileServer(ConnectionServer):
                 self.log.debug("FileRequest: %s %s" % (str(connection), message["cmd"]))
         req = FileRequest(self, connection)
         req.route(message["cmd"], message.get("req_id"), message.get("params"))
+        if not self.has_internet:
+            self.has_internet = True
+            self.onInternetOnline()
+
+    def onInternetOnline(self):
+        self.log.info("Internet online")
+        gevent.spawn(self.checkSites, check_files=False, force_port_check=True)
 
     # Reload the FileRequest class to prevent restarts in debug mode
     def reload(self):
@@ -155,31 +164,33 @@ class FileServer(ConnectionServer):
         self.port_opened = True
 
     # Check site file integrity
-    def checkSite(self, site):
+    def checkSite(self, site, check_files=True):
         if site.settings["serving"]:
             site.announce(mode="startup")  # Announce site to tracker
-            site.update()  # Update site's content.json and download changed files
+            site.update(check_files=check_files)  # Update site's content.json and download changed files
             site.sendMyHashfield()
             site.updateHashfield()
-            if self.port_opened is False:  # In passive mode keep 5 active peer connection to get the updates
+            if len(site.peers) > 5:  # Keep active connections if site having 5 or more peers
                 site.needConnections()
 
     # Check sites integrity
-    def checkSites(self):
-        if self.port_opened is None:  # Test and open port if not tested yet
-            if len(self.sites) <= 2:  # Faster announce on first startup
+    @util.Noparallel()
+    def checkSites(self, check_files=True, force_port_check=False):
+        self.log.debug("Checking sites...")
+        sites_checking = False
+        if self.port_opened is None or force_port_check:  # Test and open port if not tested yet
+            if len(self.sites) <= 2:  # Don't wait port opening on first startup
+                sites_checking = True
                 for address, site in self.sites.items():
-                    gevent.spawn(self.checkSite, site)
-            self.openport()
+                    gevent.spawn(self.checkSite, site, check_files)
 
-        if not self.port_opened:
+            self.openport()
             self.tor_manager.startOnions()
 
-        self.log.debug("Checking sites integrity..")
-        for address, site in self.sites.items():  # Check sites integrity
-            gevent.spawn(self.checkSite, site)  # Check in new thread
-            time.sleep(2)  # Prevent too quick request
-        site = None
+        if not sites_checking:
+            for address, site in self.sites.items():  # Check sites integrity
+                gevent.spawn(self.checkSite, site, check_files)  # Check in new thread
+                time.sleep(2)  # Prevent too quick request
 
     def trackersFileReloader(self):
         while 1:
@@ -232,13 +243,12 @@ class FileServer(ConnectionServer):
         last_time = time.time()
         while 1:
             time.sleep(30)
-            if time.time() - last_time > 60:  # If taken more than 60 second then the computer was in sleep mode
+            if time.time() - max(self.last_request, last_time) > 60*3:  # If taken more than 3 minute then the computer was in sleep mode
                 self.log.info(
                     "Wakeup detected: time wrap from %s to %s (%s sleep seconds), acting like startup..." %
                     (last_time, time.time(), time.time() - last_time)
                 )
-                self.port_opened = None  # Check if we still has the open port on router
-                self.checkSites()
+                self.checkSites(check_files=False, force_port_check=True)
             last_time = time.time()
 
     # Bind and start serving sites

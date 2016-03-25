@@ -107,11 +107,15 @@ class Sidebar extends Class
 			@setSiteInfo(site_info)
 			@original_set_site_info.apply(wrapper, arguments)
 
-	setSiteInfo: (site_info) ->
-		RateLimit 1000, =>
-			@updateHtmlTag()
-		@displayGlobe()
+		# Preload world.jpg
+		img = new Image();
+		img.src = "/uimedia/globe/world.jpg";
 
+	setSiteInfo: (site_info) ->
+		RateLimit 3000, =>
+			@updateHtmlTag()
+		RateLimit 30000, =>
+			@displayGlobe()
 
 	# Create the sidebar html tag
 	createHtmltag: ->
@@ -133,6 +137,7 @@ class Sidebar extends Class
 				@log "Creating content"
 				morphdom(@tag.find(".content")[0], '<div class="content">'+res+'</div>')
 				# @scrollable()
+				@when_loaded.resolve()
 
 			else  # Not first update, patch the html to keep unchanged dom elements
 				@log "Patching content"
@@ -143,7 +148,6 @@ class Sidebar extends Class
 						else
 							return true
 				}
-			@when_loaded.resolve()
 
 
 	animDrag: (e) =>
@@ -342,28 +346,30 @@ class Sidebar extends Class
 				if typeof(DAT) == "undefined"  # Globe script not loaded, do it first
 					$.getScript("/uimedia/globe/all.js", @displayGlobe)
 				else
-					RateLimit 5000, =>
-						@displayGlobe()
+					@displayGlobe()
 			), 600
 
 
 	displayGlobe: =>
-		wrapper.ws.cmd "sidebarGetPeers", [], (globe_data) =>
-			if @globe
-				@globe.scene.remove(@globe.points)
-				@globe.addData( globe_data, {format: 'magnitude', name: "hello", animated: false} )
-				@globe.createPoints()
-			else
-				try
-					@globe = new DAT.Globe( @tag.find(".globe")[0], {"imgDir": "/uimedia/globe/"} )
-					@globe.addData( globe_data, {format: 'magnitude', name: "hello"} )
+		img = new Image();
+		img.src = "/uimedia/globe/world.jpg";
+		img.onload = =>
+			wrapper.ws.cmd "sidebarGetPeers", [], (globe_data) =>
+				if @globe
+					@globe.scene.remove(@globe.points)
+					@globe.addData( globe_data, {format: 'magnitude', name: "hello", animated: false} )
 					@globe.createPoints()
-					@globe.animate()
-				catch e
-					console.log "WebGL error", e
-					@tag.find(".globe").addClass("error").text("WebGL not supported")
+				else
+					try
+						@globe = new DAT.Globe( @tag.find(".globe")[0], {"imgDir": "/uimedia/globe/"} )
+						@globe.addData( globe_data, {format: 'magnitude', name: "hello"} )
+						@globe.createPoints()
+						@globe.animate()
+					catch e
+						console.log "WebGL error", e
+						@tag.find(".globe").addClass("error").text("WebGL not supported")
 
-			@tag.find(".globe").removeClass("loading")
+				@tag.find(".globe").removeClass("loading")
 
 
 	unloadGlobe: =>

@@ -123,7 +123,7 @@ class FileRequest(object):
                         (peer.key, len(site.worker_manager.tasks))
                     )
                 for task in site.worker_manager.tasks:  # New peer add to every ongoing task
-                    if task["peers"]:
+                    if task["peers"] and not task["optional_hash_id"]:
                         # Download file from this peer too if its peer locked
                         site.needFile(task["inner_path"], peer=peer, update=True, blocking=False)
 
@@ -322,7 +322,7 @@ class FileRequest(object):
         if self.server.tor_manager and self.server.tor_manager.site_onions.get(site.address):  # Running onion
             my_ip = helper.packOnionAddress(self.server.tor_manager.site_onions[site.address], self.server.port)
             my_back = back_onion
-        elif config.ip_external:  # External ip definied
+        elif config.ip_external:  # External ip defined
             my_ip = helper.packAddress(config.ip_external, self.server.port)
             my_back = back_ip4
         else:  # No external ip defined
@@ -337,7 +337,7 @@ class FileRequest(object):
 
         if config.verbose:
             self.log.debug(
-                "Found: %s,%s/%s" %
+                "Found: IP4: %s, Onion: %s for %s hashids" %
                 (len(back_ip4), len(back_onion), len(params["hash_ids"]))
             )
         self.response({"peers": back_ip4, "peers_onion": back_onion})

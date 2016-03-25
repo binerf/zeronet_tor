@@ -8,7 +8,7 @@ class Config(object):
 
     def __init__(self, argv):
         self.version = "0.3.6"
-        self.rev = 1015
+        self.rev = 1070
         self.argv = argv
         self.action = None
         self.config_file = "zeronet.conf"
@@ -58,6 +58,10 @@ class Config(object):
         action = self.subparsers.add_parser("siteNeedFile", help='Get a file from site')
         action.add_argument('address', help='Site address')
         action.add_argument('inner_path', help='File inner path')
+
+        # SiteDownload
+        action = self.subparsers.add_parser("siteDownload", help='Download a new site')
+        action.add_argument('address', help='Site address')
 
         # SiteSign
         action = self.subparsers.add_parser("siteSign", help='Update and sign content.json: address [privatekey]')
@@ -146,6 +150,7 @@ class Config(object):
         self.parser.add_argument('--trackers_file', help='Load torrent trackers dynamically from a file', default=False, metavar='path')
         self.parser.add_argument('--use_openssl', help='Use OpenSSL liblary for speedup',
                                  type='bool', choices=[True, False], default=use_openssl)
+        self.parser.add_argument('--disable_db', help='Disable database updating', action='store_true')
         self.parser.add_argument('--disable_encryption', help='Disable connection encryption', action='store_true')
         self.parser.add_argument('--disable_sslcompression', help='Disable SSL compression to save memory',
                                  type='bool', choices=[True, False], default=True)

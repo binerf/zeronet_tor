@@ -33,6 +33,7 @@ class ConnectionServer:
         self.ip_incoming = {}  # Incoming connections from ip in the last minute to avoid connection flood
         self.broken_ssl_peer_ids = {}  # Peerids of broken ssl connections
         self.ips = {}  # Connection by ip
+        self.has_internet = True  # Internet outage detection
 
         self.running = True
         self.thread_checker = gevent.spawn(self.checkConnections)
@@ -170,8 +171,10 @@ class ConnectionServer:
             time.sleep(60)  # Check every minute
             self.ip_incoming = {}  # Reset connected ips counter
             self.broken_ssl_peer_ids = {}  # Reset broken ssl peerids count
+            last_message_time = 0
             for connection in self.connections[:]:  # Make a copy
                 idle = time.time() - max(connection.last_recv_time, connection.start_time, connection.last_message_time)
+                last_message_time = max(last_message_time, connection.last_message_time)
 
                 if connection.unpacker and idle > 30:
                     # Delete the unpacker if not needed
@@ -188,7 +191,7 @@ class ConnectionServer:
                     connection.close()
 
                 elif idle > 20 * 60 and connection.last_send_time < time.time() - 10:
-                    # Idle more than 20 min and we not send request in last 10 sec
+                    # Idle more than 20 min and we have not sent request in last 10 sec
                     if not connection.ping():  # send ping request
                         connection.close()
 
@@ -215,3 +218,21 @@ class ConnectionServer:
                 elif run_i % 30 == 0:
                     # Reset bad action counter every 30 min
                     connection.bad_actions = 0
+
+            # Internet outage detection
+            if time.time() - last_message_time > max(60, 60*5/max(1,len(self.connections)/50)):
+                # Offline: Last message more than 60-300sec depending on connection number
+                if self.has_internet:
+                    self.has_internet = False
+                    self.onInternetOffline()
+            else:
+                # Online
+                if not self.has_internet:
+                    self.has_internet = True
+                    self.onInternetOnline()
+
+    def onInternetOnline(self):
+        self.log.info("Internet online")
+
+    def onInternetOffline(self):
+        self.log.info("Internet offline")

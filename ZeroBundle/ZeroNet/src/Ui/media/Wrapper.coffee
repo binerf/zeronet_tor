@@ -50,7 +50,7 @@ class Wrapper
 		else if cmd == "notification" # Display notification
 			type = message.params[0]
 			id = "notification-#{message.id}"
-			if "-" in message.params[0]  # - in first param: message id definied
+			if "-" in message.params[0]  # - in first param: message id defined
 				[id, type] = message.params[0].split("-")
 			@notifications.add(id, type, message.params[1], message.params[2])
 		else if cmd == "prompt" # Prompt input
@@ -123,6 +123,8 @@ class Wrapper
 			window.history.replaceState(message.params[0], message.params[1], query)
 		else if cmd == "wrapperGetState"
 			@sendInner {"cmd": "response", "to": message.id, "result": window.history.state}
+		else if cmd == "wrapperOpenWindow"
+			@actionOpenWindow(message.params)
 		else # Send to websocket
 			if message.id < 1000000
 				@ws.send(message) # Pass message to websocket
@@ -149,6 +151,17 @@ class Wrapper
 		$("body").prepend(elem)
 
 	# - Actions -
+
+	actionOpenWindow: (params) ->
+		if typeof(params) == "string"
+			w = window.open()
+			w.opener = null
+			w.location = params
+		else
+			w = window.open(null, params[1], params[2])
+			w.opener = null
+			w.location = params[0]
+
 
 	actionNotification: (message) ->
 		message.params = @toHtmlSafe(message.params) # Escape html

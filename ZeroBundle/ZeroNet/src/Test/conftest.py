@@ -24,14 +24,18 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + "/.."))  # Import
 
 from Config import config
 config.argv = ["none"]  # Dont pass any argv to config parser
-config.parse()
-config.data_dir = "src/Test/testdata"  # Use test data for unittests
-config.debug_socket = True  # Use test data for unittests
-config.tor = "disabled"  # Don't start Tor client
+config.parse()  # Plugins need to access the configuration
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout)
 
 from Plugin import PluginManager
 PluginManager.plugin_manager.loadPlugins()
+config.loadPlugins()
+config.parse()  # Parse again to add plugin configuration options
+
+config.data_dir = "src/Test/testdata"  # Use test data for unittests
+config.debug_socket = True  # Use test data for unittests
+config.tor = "disabled"  # Don't start Tor client
+
 
 import gevent
 from gevent import monkey
@@ -137,7 +141,15 @@ def file_server(request):
     request.addfinalizer(CryptConnection.manager.removeCerts)  # Remove cert files after end
     file_server = FileServer("127.0.0.1", 1544)
     gevent.spawn(lambda: ConnectionServer.start(file_server))
-    time.sleep(0)  # Port opening
+    # Wait for port opening
+    for retry in range(10):
+        time.sleep(0.1)  # Port opening
+        try:
+            conn = file_server.getConnection("127.0.0.1", 1544)
+            conn.close()
+            break
+        except Exception, err:
+            print err
     assert file_server.running
 
     def stop():

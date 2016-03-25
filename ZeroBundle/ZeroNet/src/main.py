@@ -55,7 +55,11 @@ if config.action == "main":
         level=logging.DEBUG, stream=helper.openLocked(log_file_path, "a")
     )
 else:
-    logging.basicConfig(level=logging.DEBUG, stream=open(os.devnull, "w"))  # No file logging if action is not main
+    log_file_path = "%s/cmd.log" % config.log_dir
+    logging.basicConfig(
+        format='[%(asctime)s] %(levelname)-8s %(name)s %(message)s',
+        level=logging.DEBUG, stream=open(log_file_path, "w")
+    )
 
 # Console logger
 console_log = logging.StreamHandler()
@@ -165,7 +169,7 @@ class Actions(object):
         logging.info("Signing site: %s..." % address)
         site = Site(address, allow_create=False)
 
-        if not privatekey:  # If no privatekey definied
+        if not privatekey:  # If no privatekey defined
             from User import UserManager
             user = UserManager.user_manager.get()
             if user:
@@ -190,12 +194,13 @@ class Actions(object):
         bad_files = []
 
         for content_inner_path in site.content_manager.contents:
+            s = time.time()
             logging.info("Verifing %s signature..." % content_inner_path)
             file_correct = site.content_manager.verifyFile(
                 content_inner_path, site.storage.open(content_inner_path, "rb"), ignore_same=False
             )
             if file_correct is True:
-                logging.info("[OK] %s signed by address %s!" % (content_inner_path, address))
+                logging.info("[OK] %s (Done in %.3fs)" % (content_inner_path, time.time() - s))
             else:
                 logging.error("[ERROR] %s: invalid file!" % content_inner_path)
                 bad_files += content_inner_path
@@ -234,13 +239,41 @@ class Actions(object):
         print "Response time: %.3fs" % (time.time() - s)
         print site.peers
 
+    def siteDownload(self, address):
+        from Site import Site
+
+        logging.info("Opening a simple connection server")
+        global file_server
+        from Connection import ConnectionServer
+        file_server = ConnectionServer("127.0.0.1", 1234)
+
+        site = Site(address)
+
+        on_completed = gevent.event.AsyncResult()
+
+        def onComplete(evt):
+            evt.set(True)
+
+        site.onComplete.once(lambda: onComplete(on_completed))
+        print "Announcing..."
+        site.announce()
+
+        s = time.time()
+        print "Downloading..."
+        site.downloadContent("content.json", check_modifications=True)
+
+        print on_completed.get()
+        print "Downloaded in %.3fs" % (time.time()-s)
+
+
     def siteNeedFile(self, address, inner_path):
         from Site import Site
+
         def checker():
             while 1:
                 s = time.time()
                 time.sleep(1)
-                print "Switch time:", time.time()-s
+                print "Switch time:", time.time() - s
         gevent.spawn(checker)
 
         logging.info("Opening a simple connection server")
@@ -266,7 +299,7 @@ class Actions(object):
         file_server = FileServer()
         site.connection_server = file_server
         file_server_thread = gevent.spawn(file_server.start, check_sites=False)  # Dont check every site integrity
-        time.sleep(0)
+        time.sleep(0.001)
 
         if not file_server_thread.ready():
             # Started fileserver
@@ -330,7 +363,6 @@ class Actions(object):
             print "Response time: %.3fs (crypt: %s)" % (peer.ping(), peer.connection.crypt)
             time.sleep(1)
 
-
     def peerGetFile(self, peer_ip, peer_port, site, filename, benchmark=False):
         logging.info("Opening a simple connection server")
         global file_server
@@ -350,7 +382,6 @@ class Actions(object):
             raw_input("Check memory")
         else:
             print peer.getFile(site, filename).read()
-
 
     def peerCmd(self, peer_ip, peer_port, cmd, parameters):
         logging.info("Opening a simple connection server")

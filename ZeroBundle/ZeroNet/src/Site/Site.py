@@ -110,7 +110,8 @@ class Site(object):
     # Download all file from content.json
     def downloadContent(self, inner_path, download_files=True, peer=None, check_modifications=False):
         s = time.time()
-        self.log.debug("Downloading %s..." % inner_path)
+        if config.verbose:
+            self.log.debug("Downloading %s..." % inner_path)
         found = self.needFile(inner_path, update=self.bad_files.get(inner_path))
         content_inner_dir = helper.getDirname(inner_path)
         if not found:
@@ -151,16 +152,20 @@ class Site(object):
             include_thread = gevent.spawn(self.downloadContent, file_inner_path, download_files=download_files, peer=peer)
             include_threads.append(include_thread)
 
-        self.log.debug("%s: Downloading %s includes..." % (inner_path, len(include_threads)))
+        if config.verbose:
+            self.log.debug("%s: Downloading %s includes..." % (inner_path, len(include_threads)))
         gevent.joinall(include_threads)
-        self.log.debug("%s: Includes download ended" % inner_path)
+        if config.verbose:
+            self.log.debug("%s: Includes download ended" % inner_path)
 
         if check_modifications:  # Check if every file is up-to-date
             self.checkModifications(0)
 
-        self.log.debug("%s: Downloading %s files, changed: %s..." % (inner_path, len(file_threads), len(changed)))
+        if config.verbose:
+            self.log.debug("%s: Downloading %s files, changed: %s..." % (inner_path, len(file_threads), len(changed)))
         gevent.joinall(file_threads)
-        self.log.debug("%s: DownloadContent ended in %.2fs" % (inner_path, time.time() - s))
+        if config.verbose:
+            self.log.debug("%s: DownloadContent ended in %.2fs" % (inner_path, time.time() - s))
 
         if not self.worker_manager.tasks:
             self.onComplete()  # No more task trigger site complete
@@ -218,9 +223,6 @@ class Site(object):
                 content = self.content_manager.contents.get(inner_path)
                 if (not content or modified > content["modified"]) and inner_path not in self.bad_files:
                     self.log.debug("New modified file from %s: %s" % (peer, inner_path))
-                    if inner_path != "content.json" and self.content_manager.getRules(inner_path) == False:
-                        self.log.debug("Banned user %s: %s, skipping." % (peer, inner_path))
-                        continue
                     # We dont have this file or we have older
                     self.bad_files[inner_path] = self.bad_files.get(inner_path, 0) + 1  # Mark as bad file
                     gevent.spawn(self.downloadContent, inner_path)  # Download the content.json + the changed files
@@ -267,7 +269,7 @@ class Site(object):
     # Update content.json from peers and download changed files
     # Return: None
     @util.Noparallel()
-    def update(self, announce=False):
+    def update(self, announce=False, check_files=True):
         self.content_manager.loadContent("content.json")  # Reload content.json
         self.content_updated = None  # Reset content updated time
         self.updateWebsocket(updating=True)
@@ -276,7 +278,8 @@ class Site(object):
 
         queried = self.checkModifications()
 
-        self.storage.checkFiles(quick_check=True)  # Quick check and mark bad files based on file size
+        if check_files:
+            self.storage.checkFiles(quick_check=True)  # Quick check and mark bad files based on file size
 
         changed, deleted = self.content_manager.loadContent("content.json")
 
@@ -285,6 +288,12 @@ class Site(object):
             self.download()
 
         self.settings["size"] = self.content_manager.getTotalSize()  # Update site size
+
+        if len(queried) == 0:
+            # Failed to query modifications
+            self.content_updated = False
+            self.bad_files["content.json"] = 1
+
         self.updateWebsocket(updated=True)
 
     # Update site by redownload all content.json
@@ -322,10 +331,10 @@ class Site(object):
             peer = peers.pop(0)
             if peer.connection and peer.connection.last_ping_delay:  # Peer connected
                 # Timeout: 5sec + size in kb + last_ping
-                timeout = timeout = 5 + int(file_size / 1024) + peer.connection.last_ping_delay
+                timeout = 5 + int(file_size / 1024) + peer.connection.last_ping_delay
             else:  # Peer not connected
-                # Timeout: 5sec + size in kb
-                timeout = timeout = 5 + int(file_size / 1024)
+                # Timeout: 10sec + size in kb
+                timeout = 10 + int(file_size / 1024)
             result = {"exception": "Timeout"}
 
             for retry in range(2):
@@ -361,26 +370,25 @@ class Site(object):
 
         threads = 5
         if limit == "default":
-            if len(self.peers) > 50:
-                limit = 3
-                threads = 3
-            else:
-                limit = 5
+            limit = 5
 
-        connected_peers = self.getConnectedPeers()
-        if len(connected_peers) > limit * 2:  # Publish to already connected peers if possible
-            peers = connected_peers
-        else:
-            peers = self.peers.values()
+        peers = self.getConnectedPeers()
+        num_connected_peers = len(peers)
+
+        random.shuffle(peers)
+
+        # Add more, non-connected peers
+        peers_more = self.peers.values()
+        random.shuffle(peers_more)
+        peers += peers_more[0:limit*2]
 
         self.log.info("Publishing %s to %s/%s peers (connected: %s)..." % (
-            inner_path, limit, len(self.peers), len(connected_peers)
+            inner_path, limit, len(self.peers), num_connected_peers
         ))
 
         if not peers:
             return 0  # No peers found
 
-        random.shuffle(peers)
         event_done = gevent.event.AsyncResult()
         for i in range(min(len(self.peers), limit, threads)):
             publisher = gevent.spawn(self.publisher, inner_path, peers, published, limit, event_done)
@@ -392,19 +400,14 @@ class Site(object):
         if len(published) == 0:
             gevent.joinall(publishers)  # No successful publish, wait for all publisher
 
-        # Make sure the connected passive peers got the update
-        passive_peers = [
-            peer for peer in peers
-            if peer.connection and not peer.connection.closed and peer.key.endswith(":0") and peer not in published
-        ]  # Every connected passive peer that we not published to
-
+        # Publish more peers in the backgroup
         self.log.info(
-            "Successfuly %s published to %s peers, publishing to %s more passive peers" % (
-            inner_path, len(published), len(passive_peers)
+            "Successfuly %s published to %s peers, publishing to %s more peers in the background" % (
+            inner_path, len(published), limit
         ))
 
-        for peer in passive_peers[0:limit]:
-            gevent.spawn(self.publisher, inner_path, passive_peers, published, limit=limit*2)
+        for thread in range(2):
+            gevent.spawn(self.publisher, inner_path, peers, published, limit=limit*2)
 
         # Send my hashfield to every connected peer if changed
         gevent.spawn(self.sendMyHashfield, 100)
@@ -728,12 +731,9 @@ class Site(object):
     def needConnections(self, num=3):
         need = min(len(self.peers), num)  # Need 3 peer, but max total peers
 
-        connected = 0
-        for peer in self.peers.values():  # Check current connected number
-            if peer.connection and peer.connection.connected:
-                connected += 1
+        connected = self.getConnectedPeers()
 
-        self.log.debug("Need connections: %s, Current: %s, Total: %s" % (need, connected, len(self.peers)))
+        self.log.debug("Need connections: %s, Current: %s, Total: %s" % (need, len(connected), len(self.peers)))
 
         if connected < need:  # Need more than we have
             for peer in self.peers.values():
@@ -795,20 +795,11 @@ class Site(object):
         if removed:
             self.log.debug("Cleanup peers result: Removed %s, left: %s" % (removed, len(self.peers)))
 
-        # Close peers if too much
+        # Close peers over the limit
         closed = 0
         connected_peers = self.getConnectedPeers()
         need_to_close = len(connected_peers) - config.connected_limit
-        # First try to remove active peers
-        if need_to_close > 0:
-            for peer in connected_peers:
-                if not peer.key.endswith(":0"):  # Connectable peer
-                    peer.remove()
-                    closed += 1
-                    if closed >= need_to_close:
-                        break
 
-        # Also remove passive peers if still more than we need
         if closed < need_to_close:
             for peer in connected_peers:
                 peer.remove()

@@ -10,7 +10,17 @@ from util import helper
 
 # Find files with extension in path
 def findfiles(path, find_ext):
-    for root, dirs, files in os.walk(path, topdown=False):
+    def sorter(f1, f2):
+        f1 = f1[0].replace(path, "")
+        f2 = f2[0].replace(path, "")
+        if f1 == "":
+            return 1
+        elif f2 == "":
+            return -1
+        else:
+            return cmp(f1, f2)
+
+    for root, dirs, files in sorted(os.walk(path, topdown=False), cmp=sorter):
         for file in sorted(files):
             file_path = root + "/" + file
             file_ext = file.split(".")[-1]
@@ -71,7 +81,7 @@ def merge(merged_path):
                 if config.coffeescript_compiler is None:
                     config.coffeescript_compiler = findCoffeescriptCompiler()
                 if not config.coffeescript_compiler:
-                    logging.error("No coffeescript compiler definied, skipping compiling %s" % merged_path)
+                    logging.error("No coffeescript compiler defined, skipping compiling %s" % merged_path)
                     return False  # No coffeescript compiler, skip this file
 
                 # Replace / with os separators and escape it

@@ -184,7 +184,7 @@ class SiteStorage:
             # Reopen DB to check changes
             self.closeDb()
             self.openDb()
-        elif inner_path.endswith(".json") and self.has_db:  # Load json file to db
+        elif not config.disable_db and inner_path.endswith(".json") and self.has_db:  # Load json file to db
             self.log.debug("Loading json file to db: %s" % inner_path)
             try:
                 self.getDb().loadJson(file_path)
@@ -269,7 +269,7 @@ class SiteStorage:
             self.site.content_manager.loadContent()  # Reload content.json
         for content_inner_path, content in self.site.content_manager.contents.items():
             i += 1
-            if i % 100 == 0:
+            if i % 50 == 0:
                 time.sleep(0.0001)  # Context switch to avoid gevent hangs
             if not os.path.isfile(self.getPath(content_inner_path)):  # Missing content.json file
                 self.log.debug("[MISSING] %s" % content_inner_path)
