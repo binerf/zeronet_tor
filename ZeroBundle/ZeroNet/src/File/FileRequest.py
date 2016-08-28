@@ -82,13 +82,7 @@ class FileRequest(object):
             self.response({"error": "Unknown site"})
             return False
         if site.settings["own"] and params["inner_path"].endswith("content.json"):
-            self.log.debug(
-                "%s pushing a file to own site %s, reloading local %s first" %
-                (self.connection.ip, site.address, params["inner_path"])
-            )
             changed, deleted = site.content_manager.loadContent(params["inner_path"], add_bad_files=False)
-            if changed or deleted:  # Content.json changed locally
-                site.settings["size"] = site.content_manager.getTotalSize()  # Update site size
 
         if not params["inner_path"].endswith("content.json"):
             self.response({"error": "Only content.json update allowed"})
@@ -114,7 +108,8 @@ class FileRequest(object):
             if params["inner_path"].endswith("content.json"):  # Download every changed file from peer
                 peer = site.addPeer(self.connection.ip, self.connection.port, return_peer=True)  # Add or get peer
                 # On complete publish to other peers
-                site.onComplete.once(lambda: site.publish(inner_path=params["inner_path"], diffs=params.get("diffs", {})), "publish_%s" % params["inner_path"])
+                diffs = params.get("diffs", {})
+                site.onComplete.once(lambda: site.publish(inner_path=params["inner_path"], diffs=diffs, limit=2), "publish_%s" % params["inner_path"])
 
                 # Load new content file and download changed files in new thread
                 def downloader():

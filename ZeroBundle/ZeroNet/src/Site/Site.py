@@ -60,12 +60,10 @@ class Site(object):
         if not self.settings.get("auth_key"):  # To auth user in site (Obsolete, will be removed)
             self.settings["auth_key"] = CryptHash.random()
             self.log.debug("New auth key: %s" % self.settings["auth_key"])
-            self.saveSettings()
 
         if not self.settings.get("wrapper_key"):  # To auth websocket permissions
             self.settings["wrapper_key"] = CryptHash.random()
             self.log.debug("New wrapper key: %s" % self.settings["wrapper_key"])
-            self.saveSettings()
 
         self.websockets = []  # Active site websocket connections
 
@@ -91,15 +89,11 @@ class Site(object):
 
     # Save site settings to data/sites.json
     def saveSettings(self):
-        s = time.time()
-        sites_settings = json.load(open("%s/sites.json" % config.data_dir))
-        sites_settings[self.address] = self.settings
-        helper.atomicWrite("%s/sites.json" % config.data_dir, json.dumps(sites_settings, indent=2, sort_keys=True))
-        self.log.debug("Saved settings in %.2fs" % (time.time() - s))
+        SiteManager.site_manager.save()
 
     # Max site size in MB
     def getSizeLimit(self):
-        return self.settings.get("size_limit", config.size_limit)
+        return self.settings.get("size_limit", int(config.size_limit))
 
     # Next size limit based on current size
     def getNextSizeLimit(self):
@@ -126,6 +120,9 @@ class Site(object):
         if config.verbose:
             self.log.debug("Got %s" % inner_path)
         changed, deleted = self.content_manager.loadContent(inner_path, load_includes=False)
+
+        if inner_path == "content.json":
+            self.saveSettings()
 
         if peer:  # Update last received update from peer to prevent re-sending the same update to it
             peer.last_content_json_update = self.content_manager.contents[inner_path]["modified"]
@@ -248,7 +245,8 @@ class Site(object):
             num_modified = 0
             for inner_path, modified in res["modified_files"].iteritems():  # Check if the peer has newer files than we
                 content = self.content_manager.contents.get(inner_path)
-                if (not content or modified > content["modified"]) and inner_path not in self.bad_files:
+                newer = not content or modified > content["modified"]
+                if newer and inner_path not in self.bad_files and not self.content_manager.isArchived(inner_path, modified):
                     num_modified += 1
                     # We dont have this file or we have older
                     self.bad_files[inner_path] = self.bad_files.get(inner_path, 0) + 1  # Mark as bad file
@@ -271,9 +269,7 @@ class Site(object):
                 if self.peers:
                     break
 
-        peers = self.peers.values()
-        random.shuffle(peers)
-        for peer in peers:  # Try to find connected good peers, but we must have at least 5 peers
+        for peer in self.peers.itervalues():  # Try to find connected good peers, but we must have at least 5 peers
             if peer.findConnection() and peer.connection.handshake.get("rev", 0) > 125:  # Add to the beginning if rev125
                 peers_try.insert(0, peer)
             elif len(peers_try) < 5:  # Backup peers, add to end of the try list
@@ -299,7 +295,7 @@ class Site(object):
     # Return: None
     @util.Noparallel()
     def update(self, announce=False, check_files=True):
-        self.content_manager.loadContent("content.json")  # Reload content.json
+        self.content_manager.loadContent("content.json", load_includes=False)  # Reload content.json
         self.content_updated = None  # Reset content updated time
         self.updateWebsocket(updating=True)
         if announce:
@@ -310,13 +306,11 @@ class Site(object):
         if check_files:
             self.storage.checkFiles(quick_check=True)  # Quick check and mark bad files based on file size
 
-        changed, deleted = self.content_manager.loadContent("content.json")
+        changed, deleted = self.content_manager.loadContent("content.json", load_includes=False)
 
         if self.bad_files:
             self.log.debug("Bad files: %s" % self.bad_files)
             self.download()
-
-        self.settings["size"] = self.content_manager.getTotalSize()  # Update site size
 
         if len(queried) == 0:
             # Failed to query modifications
@@ -557,14 +551,25 @@ class Site(object):
                     if not self.content_manager.contents.get("content.json"):
                         return False  # Content.json download failed
 
-            if not inner_path.endswith("content.json") and not self.content_manager.getFileInfo(inner_path):
-                # No info for file, download all content.json first
-                self.log.debug("No info for %s, waiting for all content.json" % inner_path)
-                success = self.downloadContent("content.json", download_files=False)
-                if not success:
-                    return False
-                if not self.content_manager.getFileInfo(inner_path):
-                    return False  # Still no info for file
+            if not inner_path.endswith("content.json"):
+                file_info = self.content_manager.getFileInfo(inner_path)
+                if not file_info:
+                    # No info for file, download all content.json first
+                    self.log.debug("No info for %s, waiting for all content.json" % inner_path)
+                    success = self.downloadContent("content.json", download_files=False)
+                    if not success:
+                        return False
+                    file_info = self.content_manager.getFileInfo(inner_path)
+                    if not file_info:
+                        return False  # Still no info for file
+                if "cert_signers" in file_info and not file_info["content_inner_path"] in self.content_manager.contents:
+                    self.log.debug("Missing content.json for requested user file: %s" % inner_path)
+                    if self.bad_files.get(file_info["content_inner_path"], 0) > 5:
+                        self.log.debug("File %s not reachable: retry %s" % (
+                            inner_path, self.bad_files.get(file_info["content_inner_path"], 0)
+                        ))
+                        return False
+                    self.downloadContent(file_info["content_inner_path"], download_files=False)
 
             task = self.worker_manager.addTask(inner_path, peer, priority=priority)
             if blocking:
@@ -686,7 +691,7 @@ class Site(object):
         if added:
             self.worker_manager.onPeers()
             self.updateWebsocket(peers_added=added)
-            self.log.debug("Found %s peers, new: %s" % (len(peers), added))
+            self.log.debug("Found %s peers, new: %s, total: %s" % (len(peers), added, len(self.peers)))
         return time.time() - s
 
     # Add myself and get other peers from tracker
@@ -772,7 +777,7 @@ class Site(object):
 
     # Keep connections to get the updates
     def needConnections(self, num=5):
-        need = min(len(self.peers), num)  # Need 5 peer, but max total peers
+        need = min(len(self.peers), num, config.connected_limit)  # Need 5 peer, but max total peers
 
         connected = self.getConnectedPeers()
 
@@ -818,25 +823,23 @@ class Site(object):
     # Cleanup probably dead peers and close connection if too much
     def cleanupPeers(self):
         peers = self.peers.values()
-        if len(peers) < 20:
-            return False
+        if len(peers) > 20:
+            # Cleanup old peers
+            removed = 0
 
-        # Cleanup old peers
-        removed = 0
+            for peer in peers:
+                if peer.connection and peer.connection.connected:
+                    continue
+                if peer.connection and not peer.connection.connected:
+                    peer.connection = None  # Dead connection
+                if time.time() - peer.time_found > 60 * 60 * 4:  # Not found on tracker or via pex in last 4 hour
+                    peer.remove()
+                    removed += 1
+                if removed > len(peers) * 0.1:  # Don't remove too much at once
+                    break
 
-        for peer in peers:
-            if peer.connection and peer.connection.connected:
-                continue
-            if peer.connection and not peer.connection.connected:
-                peer.connection = None  # Dead connection
-            if time.time() - peer.time_found > 60 * 60 * 4:  # Not found on tracker or via pex in last 4 hour
-                peer.remove()
-                removed += 1
-            if removed > len(peers) * 0.1:  # Don't remove too much at once
-                break
-
-        if removed:
-            self.log.debug("Cleanup peers result: Removed %s, left: %s" % (removed, len(self.peers)))
+            if removed:
+                self.log.debug("Cleanup peers result: Removed %s, left: %s" % (removed, len(self.peers)))
 
         # Close peers over the limit
         closed = 0

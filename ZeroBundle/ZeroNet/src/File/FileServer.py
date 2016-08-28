@@ -185,6 +185,8 @@ class FileServer(ConnectionServer):
                 for address, site in self.sites.items():
                     gevent.spawn(self.checkSite, site, check_files)
 
+            if force_port_check:
+                self.port_opened = None
             self.openport()
             if self.port_opened is False:
                 self.tor_manager.startOnions()
@@ -218,9 +220,7 @@ class FileServer(ConnectionServer):
 
                 site.cleanupPeers()
 
-                # In passive mode keep 5 active peer connection to get the updates
-                if self.port_opened is False:
-                    site.needConnections()
+                site.needConnections()  # Keep 5 active peer connection to get the updates
 
                 time.sleep(2)  # Prevent too quick request
 
