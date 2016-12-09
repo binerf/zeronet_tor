@@ -111,6 +111,8 @@ class Wrapper
 			@actionPrompt(message)
 		else if cmd == "wrapperSetViewport" # Set the viewport
 			@actionSetViewport(message)
+		else if cmd == "wrapperSetTitle"
+			$("head title").text(message.params)
 		else if cmd == "wrapperReload" # Reload current page
 			@actionReload(message)
 		else if cmd == "wrapperGetLocalStorage"
@@ -139,7 +141,7 @@ class Wrapper
 		if query == null
 			query = window.location.search
 		back = window.location.pathname
-		if back.slice(-1) != "/"
+		if back.match /^\/[^\/]*$/ # Add / after site address if called without it
 			back += "/"
 		if query.replace("?", "")
 			back += "?"+query.replace("?", "")
@@ -169,7 +171,7 @@ class Wrapper
 
 	actionPermissionAdd: (message) ->
 		permission = message.params
-		@displayConfirm "This site requests permission: <b>#{@toHtmlSafe(permission)}</b>", "Grant", =>
+		@displayConfirm "This site requests permission:" + " <b>#{@toHtmlSafe(permission)}</b>", "Grant", =>
 			@ws.cmd "permissionAdd", permission, =>
 				@sendInner {"cmd": "response", "to": message.id, "result": "Granted"}
 
@@ -396,7 +398,7 @@ class Wrapper
 
 	updateProgress: (site_info) ->
 		if site_info.tasks > 0 and site_info.started_task_num > 0
-			@loading.setProgress 1-(site_info.tasks / site_info.started_task_num)
+			@loading.setProgress 1-(Math.max(site_info.tasks, site_info.bad_files) / site_info.started_task_num)
 		else
 			@loading.hideProgress()
 

@@ -35,6 +35,7 @@ class UiRequestPlugin(object):
         import gc
         import sys
         from Ui import UiRequest
+        from Db import Db
         from Crypt import CryptConnection
 
         hpy = None
@@ -91,7 +92,7 @@ class UiRequestPlugin(object):
             len(main.file_server.connections), main.file_server.last_connection_id
         )
         yield "<table><tr> <th>id</th> <th>proto</th>  <th>type</th> <th>ip</th> <th>open</th> <th>crypt</th> <th>ping</th>"
-        yield "<th>buff</th> <th>bad</th> <th>idle</th> <th>open</th> <th>delay</th> <th>out</th> <th>in</th> <th>last sent</th>"
+        yield "<th>buff</th> <th>bad</th> <th>idle</th> <th>open</th> <th>delay</th> <th>cpu</th> <th>out</th> <th>in</th> <th>last sent</th>"
         yield "<th>waiting</th> <th>version</th> <th>sites</th> </tr>"
         for connection in main.file_server.connections:
             if "cipher" in dir(connection.sock):
@@ -111,6 +112,7 @@ class UiRequestPlugin(object):
                 ("since", max(connection.last_send_time, connection.last_recv_time)),
                 ("since", connection.start_time),
                 ("%.3f", connection.last_sent_time - connection.last_send_time),
+                ("%.3fs", connection.cpu_time),
                 ("%.0fkB", connection.bytes_sent / 1024),
                 ("%.0fkB", connection.bytes_recv / 1024),
                 ("%s", connection.last_cmd),
@@ -124,6 +126,11 @@ class UiRequestPlugin(object):
         yield "<br><br><b>Tor hidden services (status: %s):</b><br>" % main.file_server.tor_manager.status
         for site_address, onion in main.file_server.tor_manager.site_onions.items():
             yield "- %-34s: %s<br>" % (site_address, onion)
+
+        # Db
+        yield "<br><br><b>Db</b>:<br>"
+        for db in sys.modules["Db.Db"].opened_dbs:
+            yield "- %.3fs: %s<br>" % (time.time() - db.last_query_time, db.db_path)
 
         # Sites
         yield "<br><br><b>Sites</b>:"
@@ -141,7 +148,10 @@ class UiRequestPlugin(object):
                     len(site.getConnectablePeers(100)),
                     len(site.peers)
                 )),
-                ("%s", len(site.content_manager.contents)),
+                ("%s (loaded: %s)", (
+                    len(site.content_manager.contents),
+                    len([key for key, val in dict(site.content_manager.contents).iteritems() if val])
+                )),
                 ("%.0fkB", site.settings.get("bytes_sent", 0) / 1024),
                 ("%.0fkB", site.settings.get("bytes_recv", 0) / 1024),
             ])

@@ -55,7 +55,7 @@ class UiRequest(object):
 
         if path == "/":
             return self.actionIndex()
-        elif path.endswith("favicon.ico"):
+        elif path == "/favicon.ico":
             return self.actionFile("src/Ui/media/img/favicon.ico")
         # Media
         elif path.startswith("/uimedia/"):
@@ -223,8 +223,10 @@ class UiRequest(object):
         address = re.sub("/.*", "", path.lstrip("/"))
         if self.isProxyRequest() and (not path or "/" in path[1:]):
             file_url = re.sub(".*/", "", inner_path)
+            root_url = "/"
         else:
             file_url = "/" + address + "/" + inner_path
+            root_url = "/" + address + "/"
 
         # Wrapper variable inits
         query_string = ""
@@ -256,6 +258,8 @@ class UiRequest(object):
                     cgi.escape(site.content_manager.contents["content.json"]["background-color"], True)
             if content.get("viewport"):
                 meta_tags += '<meta name="viewport" id="viewport" content="%s">' % cgi.escape(content["viewport"], True)
+            if content.get("favicon"):
+                meta_tags += '<link rel="icon" href="%s%s">' % (root_url, cgi.escape(content["favicon"], True))
             if content.get("postmessage_nonce_security"):
                 postmessage_nonce_security = "true"
 
@@ -282,6 +286,7 @@ class UiRequest(object):
             show_loadingscreen=json.dumps(not site.storage.isFile(file_inner_path)),
             sandbox_permissions=sandbox_permissions,
             rev=config.rev,
+            lang=config.language,
             homepage=homepage
         )
 
@@ -314,7 +319,7 @@ class UiRequest(object):
 
 
     # Serve a media for site
-    def actionSiteMedia(self, path):
+    def actionSiteMedia(self, path, header_length=True):
         path_parts = self.parsePath(path)
 
         # Check wrapper nonce
@@ -349,13 +354,19 @@ class UiRequest(object):
                     if site.settings["own"]:
                         from Debug import DebugMedia
                         DebugMedia.merge(file_path)
-                if os.path.isfile(file_path):  # File exits
-                    return self.actionFile(file_path)
-                else:  # File not exits, try to download
+                if os.path.isfile(file_path):  # File exists
+                    return self.actionFile(file_path, header_length=header_length)
+                elif os.path.isdir(file_path): # If this is actually a folder, add "/" and redirect
+                    return self.actionRedirect("./{0}/".format(path_parts["inner_path"].split("/")[-1]))
+                else:  # File not exists, try to download
                     site = SiteManager.site_manager.need(address, all_file=False)
+
+                    if path_parts["inner_path"].endswith("favicon.ico"):  # Default favicon for all sites
+                        return self.actionFile("src/Ui/media/img/favicon.ico")
+
                     result = site.needFile(path_parts["inner_path"], priority=5)  # Wait until file downloads
                     if result:
-                        return self.actionFile(file_path)
+                        return self.actionFile(file_path, header_length=header_length)
                     else:
                         self.log.debug("File not found: %s" % path_parts["inner_path"])
                         # Site larger than allowed, re-add wrapper nonce to allow reload
@@ -380,12 +391,12 @@ class UiRequest(object):
                     # If debugging merge *.css to all.css and *.js to all.js
                     from Debug import DebugMedia
                     DebugMedia.merge(file_path)
-                return self.actionFile(file_path)
+                return self.actionFile(file_path, header_length=False)  # Dont's send site to allow plugins append content
         else:  # Bad url
             return self.error400()
 
     # Stream a file to client
-    def actionFile(self, file_path, block_size=64 * 1024, send_header=True):
+    def actionFile(self, file_path, block_size=64 * 1024, send_header=True, header_length=True):
         if os.path.isfile(file_path):
             # Try to figure out content type by extension
             content_type = self.getContentType(file_path)
@@ -398,6 +409,8 @@ class UiRequest(object):
                 extra_headers = {}
                 file_size = os.path.getsize(file_path)
                 extra_headers["Accept-Ranges"] = "bytes"
+                if header_length:
+                    extra_headers["Content-Length"] = str(file_size)
                 if range:
                     range_start = int(re.match(".*?([0-9]+)", range).group(1))
                     if re.match(".*?-([0-9]+)", range):
@@ -425,7 +438,7 @@ class UiRequest(object):
                     except StopIteration:
                         file.close()
                         break
-        else:  # File not exits
+        else:  # File not exists
             yield self.error404(file_path)
 
     # On websocket connection

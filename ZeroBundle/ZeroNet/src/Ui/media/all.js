@@ -41,7 +41,9 @@
       this.ws.onmessage = this.onMessage;
       this.ws.onopen = this.onOpenWebsocket;
       this.ws.onerror = this.onErrorWebsocket;
-      return this.ws.onclose = this.onCloseWebsocket;
+      this.ws.onclose = this.onCloseWebsocket;
+      this.connected = false;
+      return this.message_queue = [];
     };
 
     ZeroWebsocket.prototype.onMessage = function(e) {
@@ -94,7 +96,12 @@
         message.id = this.next_message_id;
         this.next_message_id += 1;
       }
-      this.ws.send(JSON.stringify(message));
+      if (this.connected) {
+        this.ws.send(JSON.stringify(message));
+      } else {
+        this.log("Not connected, adding message to queue");
+        this.message_queue.push(message);
+      }
       if (cb) {
         return this.waiting_cb[message.id] = cb;
       }
@@ -107,7 +114,15 @@
     };
 
     ZeroWebsocket.prototype.onOpenWebsocket = function(e) {
+      var message, _i, _len, _ref;
       this.log("Open");
+      this.connected = true;
+      _ref = this.message_queue;
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        message = _ref[_i];
+        this.ws.send(JSON.stringify(message));
+      }
+      this.message_queue = [];
       if (this.onOpen != null) {
         return this.onOpen(e);
       }
@@ -125,6 +140,7 @@
         reconnect = 10000;
       }
       this.log("Closed", e);
+      this.connected = false;
       if (e && e.code === 1000 && e.wasClean === false) {
         this.log("Server error, please reload the page", e.wasClean);
       } else {
@@ -561,7 +577,7 @@ jQuery.extend( jQuery.easing,
       var button, line;
       if ($(".console .button-setlimit").length === 0) {
         line = this.printLine("Site size: <b>" + (parseInt(site_info.settings.size / 1024 / 1024)) + "MB</b> is larger than default allowed " + (parseInt(site_info.size_limit)) + "MB", "warning");
-        button = $("<a href='#Set+limit' class='button button-setlimit'>Open site and set size limit to " + site_info.next_size_limit + "MB</a>");
+        button = $("<a href='#Set+limit' class='button button-setlimit'>" + ("Open site and set size limit to " + site_info.next_size_limit + "MB") + "</a>");
         button.on("click", (function() {
           return window.wrapper.setSizeLimit(site_info.next_size_limit);
         }));
@@ -901,6 +917,8 @@ jQuery.extend( jQuery.easing,
         return this.actionPrompt(message);
       } else if (cmd === "wrapperSetViewport") {
         return this.actionSetViewport(message);
+      } else if (cmd === "wrapperSetTitle") {
+        return $("head title").text(message.params);
       } else if (cmd === "wrapperReload") {
         return this.actionReload(message);
       } else if (cmd === "wrapperGetLocalStorage") {
@@ -941,7 +959,7 @@ jQuery.extend( jQuery.easing,
         query = window.location.search;
       }
       back = window.location.pathname;
-      if (back.slice(-1) !== "/") {
+      if (back.match(/^\/[^\/]*$/)) {
         back += "/";
       }
       if (query.replace("?", "")) {
@@ -977,7 +995,7 @@ jQuery.extend( jQuery.easing,
     Wrapper.prototype.actionPermissionAdd = function(message) {
       var permission;
       permission = message.params;
-      return this.displayConfirm("This site requests permission: <b>" + (this.toHtmlSafe(permission)) + "</b>", "Grant", (function(_this) {
+      return this.displayConfirm("This site requests permission:" + (" <b>" + (this.toHtmlSafe(permission)) + "</b>"), "Grant", (function(_this) {
         return function() {
           return _this.ws.cmd("permissionAdd", permission, function() {
             return _this.sendInner({
@@ -1299,7 +1317,7 @@ jQuery.extend( jQuery.easing,
 
     Wrapper.prototype.updateProgress = function(site_info) {
       if (site_info.tasks > 0 && site_info.started_task_num > 0) {
-        return this.loading.setProgress(1 - (site_info.tasks / site_info.started_task_num));
+        return this.loading.setProgress(1 - (Math.max(site_info.tasks, site_info.bad_files) / site_info.started_task_num));
       } else {
         return this.loading.hideProgress();
       }

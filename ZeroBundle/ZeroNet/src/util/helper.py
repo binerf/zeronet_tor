@@ -7,6 +7,9 @@ import collections
 import time
 import logging
 import base64
+import gevent
+
+from Config import config
 
 
 def atomicWrite(dest, content, mode="w"):
@@ -39,9 +42,31 @@ def openLocked(path, mode="w"):
         import fcntl
         f = open(path, mode)
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    elif os.name == "nt":
+        import msvcrt
+        f = open(path, mode)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, -1)
     else:
         f = open(path, mode)
     return f
+
+
+def getFreeSpace():
+    free_space = -1
+    if "statvfs" in dir(os):  # Unix
+        statvfs = os.statvfs(config.data_dir)
+        free_space = statvfs.f_frsize * statvfs.f_bavail
+    else:  # Windows
+        try:
+            import ctypes
+            free_space_pointer = ctypes.c_ulonglong(0)
+            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                ctypes.c_wchar_p(config.data_dir), None, None, ctypes.pointer(free_space_pointer)
+            )
+            free_space = free_space_pointer.value
+        except Exception, err:
+            logging.error("GetFreeSpace error: %s" % err)
+    return free_space
 
 
 def shellquote(*args):
@@ -59,7 +84,7 @@ def packPeers(peers):
                 packed_peers["onion"].append(peer.packMyAddress())
             else:
                 packed_peers["ip4"].append(peer.packMyAddress())
-        except Exception, err:
+        except Exception:
             logging.error("Error packing peer address: %s" % peer)
     return packed_peers
 
@@ -90,14 +115,15 @@ def unpackOnionAddress(packed):
 # Return: data/site/content.json -> data/site
 def getDirname(path):
     if "/" in path:
-        return path[:path.rfind("/")+1]
+        return path[:path.rfind("/") + 1]
     else:
         return ""
+
 
 # Get dir from file
 # Return: data/site/content.json -> content.json
 def getFilename(path):
-    return path[path.rfind("/")+1:]
+    return path[path.rfind("/") + 1:]
 
 
 # Convert hash to hashid for hashfield
@@ -146,3 +172,12 @@ def httpRequest(url, as_file=False):
         return data
     else:
         return response
+
+
+def timerCaller(secs, func, *args, **kwargs):
+    gevent.spawn_later(secs, timerCaller, secs, func, *args, **kwargs)
+    func(*args, **kwargs)
+
+
+def timer(secs, func, *args, **kwargs):
+    gevent.spawn_later(secs, timerCaller, secs, func, *args, **kwargs)

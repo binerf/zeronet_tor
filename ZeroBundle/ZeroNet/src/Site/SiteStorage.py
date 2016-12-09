@@ -20,7 +20,7 @@ class SiteStorage(object):
     def __init__(self, site, allow_create=True):
         self.site = site
         self.directory = "%s/%s" % (config.data_dir, self.site.address)  # Site data diretory
-        self.allowed_dir = os.path.abspath(self.directory.decode(sys.getfilesystemencoding()))  # Only serve/modify file within this dir
+        self.allowed_dir = os.path.abspath(self.directory.decode(sys.getfilesystemencoding()))  # Only serve file within this dir
         self.log = site.log
         self.db = None  # Db class
         self.db_checked = False  # Checked db tables since startup
@@ -175,7 +175,7 @@ class SiteStorage(object):
     def delete(self, inner_path):
         file_path = self.getPath(inner_path)
         os.unlink(file_path)
-        self.onUpdated(inner_path)
+        self.onUpdated(inner_path, file=False)
 
     def deleteDir(self, inner_path):
         dir_path = self.getPath(inner_path)
@@ -233,16 +233,15 @@ class SiteStorage(object):
     # Write formatted json file
     def writeJson(self, inner_path, data):
         content = json.dumps(data, indent=1, sort_keys=True)
+
         # Make it a little more compact by removing unnecessary white space
-
-        def compact_list(match):
-            return "[ " + match.group(1).strip() + " ]"
-
         def compact_dict(match):
-            return "{ " + match.group(1).strip() + " }"
+            if "\n" in match.group(0):
+                return match.group(0).replace(match.group(1), match.group(1).strip())
+            else:
+                return match.group(0)
 
-        content = re.sub("\[([^,\{\[]{10,100}?)\]", compact_list, content, flags=re.DOTALL)
-        content = re.sub("\{([^,\[\{]{10,100}?)\}", compact_dict, content, flags=re.DOTALL)
+        content = re.sub("\{(\n[^,\[\{]{10,100}?)\}[, ]{0,2}\n", compact_dict, content, flags=re.DOTALL)
 
         # Remove end of line whitespace
         content = re.sub("(?m)[ ]+$", "", content)
@@ -296,6 +295,7 @@ class SiteStorage(object):
         i = 0
 
         if not self.site.content_manager.contents.get("content.json"):  # No content.json, download it first
+            self.log.debug("VerifyFile content.json not exists")
             self.site.needFile("content.json", update=True)  # Force update to fix corrupt file
             self.site.content_manager.loadContent()  # Reload content.json
         for content_inner_path, content in self.site.content_manager.contents.items():
@@ -329,11 +329,13 @@ class SiteStorage(object):
             optional_added = 0
             optional_removed = 0
             for file_relative_path in content.get("files_optional", {}).keys():
+                file_node = content["files_optional"][file_relative_path]
                 file_inner_path = helper.getDirname(content_inner_path) + file_relative_path  # Relative to site dir
                 file_inner_path = file_inner_path.strip("/")  # Strip leading /
                 file_path = self.getPath(file_inner_path)
                 if not os.path.isfile(file_path):
-                    self.site.content_manager.hashfield.removeHash(content["files_optional"][file_relative_path]["sha512"])
+                    if self.site.content_manager.hashfield.hasHash(file_node["sha512"]):
+                        self.site.content_manager.optionalRemove(file_inner_path, file_node["sha512"], file_node["size"])
                     if add_optional:
                         bad_files.append(file_inner_path)
                     continue
@@ -344,30 +346,31 @@ class SiteStorage(object):
                     ok = self.site.content_manager.verifyFile(file_inner_path, open(file_path, "rb"))
 
                 if ok:
-                    self.site.content_manager.hashfield.appendHash(content["files_optional"][file_relative_path]["sha512"])
-                    optional_added += 1
+                    if not self.site.content_manager.hashfield.hasHash(file_node["sha512"]):
+                        self.site.content_manager.optionalDownloaded(file_inner_path, file_node["sha512"], file_node["size"])
+                        optional_added += 1
                 else:
-                    self.site.content_manager.hashfield.removeHash(content["files_optional"][file_relative_path]["sha512"])
-                    optional_removed += 1
-                    if add_optional:
-                        bad_files.append(file_inner_path)
+                    if self.site.content_manager.hashfield.hasHash(file_node["sha512"]):
+                        self.site.content_manager.optionalRemove(file_inner_path, file_node["sha512"], file_node["size"])
+                        optional_removed += 1
+                    bad_files.append(file_inner_path)
                     self.log.debug("[OPTIONAL CHANGED] %s" % file_inner_path)
 
             if config.verbose:
                 self.log.debug(
-                    "%s verified: %s, quick: %s, bad: %s, optionals: +%s -%s" %
-                    (content_inner_path, len(content["files"]), quick_check, bad_files, optional_added, optional_removed)
+                    "%s verified: %s, quick: %s, optionals: +%s -%s" %
+                    (content_inner_path, len(content["files"]), quick_check, optional_added, optional_removed)
                 )
 
         time.sleep(0.0001)  # Context switch to avoid gevent hangs
         return bad_files
 
     # Check and try to fix site files integrity
-    def checkFiles(self, quick_check=True):
+    def updateBadFiles(self, quick_check=True):
         s = time.time()
         bad_files = self.verifyFiles(
             quick_check,
-            add_optional=self.site.settings.get("autodownloadoptional"),
+            add_optional=self.site.isDownloadable(""),
             add_changed=not self.site.settings.get("own")  # Don't overwrite changed files if site owned
         )
         self.site.bad_files = {}
@@ -380,7 +383,8 @@ class SiteStorage(object):
     def deleteFiles(self):
         self.log.debug("Deleting files from content.json...")
         files = []  # Get filenames
-        for content_inner_path, content in self.site.content_manager.contents.iteritems():
+        for content_inner_path in self.site.content_manager.contents.keys():
+            content = self.site.content_manager.contents[content_inner_path]
             files.append(content_inner_path)
             # Add normal files
             for file_relative_path in content.get("files", {}).keys():
@@ -406,7 +410,13 @@ class SiteStorage(object):
         for inner_path in files:
             path = self.getPath(inner_path)
             if os.path.isfile(path):
-                os.unlink(path)
+                for retry in range(5):
+                    try:
+                        os.unlink(path)
+                        break
+                    except Exception, err:
+                        self.log.error("Error removing %s: %s, try #%s" %  (path, err, retry))
+                    time.sleep(float(retry)/10)
             self.onUpdated(inner_path, False)
 
         self.log.debug("Deleting empty dirs...")

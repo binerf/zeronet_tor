@@ -13,6 +13,7 @@ class Sidebar extends Class
 		@initFixbutton()
 		@dragStarted = 0
 		@globe = null
+		@preload_html = null
 
 		@original_set_site_info = wrapper.setSiteInfo  # We going to override this, save the original
 
@@ -25,6 +26,15 @@ class Sidebar extends Class
 
 
 	initFixbutton: ->
+		###
+		@fixbutton.on "mousedown touchstart", (e) =>
+			if not @opened
+				@logStart("Preloading")
+				wrapper.ws.cmd "sidebarGetHtmlTag", {}, (res) =>
+					@logEnd("Preloading")
+					@preload_html = res
+		###
+
 		# Detect dragging
 		@fixbutton.on "mousedown touchstart", (e) =>
 			e.preventDefault()
@@ -136,21 +146,28 @@ class Sidebar extends Class
 
 
 	updateHtmlTag: ->
-		wrapper.ws.cmd "sidebarGetHtmlTag", {}, (res) =>
-			if @tag.find(".content").children().length == 0 # First update
-				@log "Creating content"
-				morphdom(@tag.find(".content")[0], '<div class="content">'+res+'</div>')
-				# @scrollable()
-				@when_loaded.resolve()
+		if @preload_html
+			@setHtmlTag(@preload_html)
+			@preload_html = null
+		else
+			wrapper.ws.cmd "sidebarGetHtmlTag", {}, @setHtmlTag
 
-			else  # Not first update, patch the html to keep unchanged dom elements
-				@log "Patching content"
-				morphdom @tag.find(".content")[0], '<div class="content">'+res+'</div>', {
-					onBeforeMorphEl: (from_el, to_el) ->  # Ignore globe loaded state
-						if from_el.className == "globe" or from_el.className.indexOf("noupdate") >= 0
-							return false
-						else
-							return true
+	setHtmlTag: (res) =>
+		if @tag.find(".content").children().length == 0 # First update
+			@log "Creating content"
+			@container.addClass("loaded")
+			morphdom(@tag.find(".content")[0], '<div class="content">'+res+'</div>')
+			# @scrollable()
+			@when_loaded.resolve()
+
+		else  # Not first update, patch the html to keep unchanged dom elements
+			@log "Patching content"
+			morphdom @tag.find(".content")[0], '<div class="content">'+res+'</div>', {
+				onBeforeMorphEl: (from_el, to_el) ->  # Ignore globe loaded state
+					if from_el.className == "globe" or from_el.className.indexOf("noupdate") >= 0
+						return false
+					else
+						return true
 				}
 
 
@@ -213,14 +230,15 @@ class Sidebar extends Class
 				@opened = true
 
 			# Revent sidebar transitions
-			@tag.css("transition", "0.4s ease-out")
-			@tag.css("transform", "translateX(-#{targetx}px)").one transitionEnd, =>
-				@tag.css("transition", "")
-				if not @opened
-					@container.remove()
-					@container = null
-					@tag.remove()
-					@tag = null
+			if @tag
+				@tag.css("transition", "0.4s ease-out")
+				@tag.css("transform", "translateX(-#{targetx}px)").one transitionEnd, =>
+					@tag.css("transition", "")
+					if not @opened
+						@container.remove()
+						@container = null
+						@tag.remove()
+						@tag = null
 
 			# Revert body transformations
 			@log "stopdrag", "opened:", @opened
@@ -248,7 +266,7 @@ class Sidebar extends Class
 		# Database reload
 		@tag.find("#button-dbreload").off("click").on "click", =>
 			wrapper.ws.cmd "dbReload", [], =>
-				wrapper.notifications.add "done-dbreload", "done", "Database schema reloaded", 5000
+				wrapper.notifications.add "done-dbreload", "done", "Database schema reloaded!", 5000
 				@updateHtmlTag()
 			return false
 
@@ -312,7 +330,7 @@ class Sidebar extends Class
 				data["title"] = $("#settings-title").val()
 				data["description"] = $("#settings-description").val()
 				json_raw = unescape(encodeURIComponent(JSON.stringify(data, undefined, '\t')))
-				wrapper.ws.cmd "fileWrite", ["content.json", btoa(json_raw)], (res) =>
+				wrapper.ws.cmd "fileWrite", ["content.json", btoa(json_raw), true], (res) =>
 					if res != "ok" # fileWrite failed
 						wrapper.notifications.add "file-write", "error", "File write error: #{res}"
 					else

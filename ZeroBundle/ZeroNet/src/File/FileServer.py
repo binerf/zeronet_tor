@@ -2,6 +2,7 @@ import logging
 import urllib2
 import re
 import time
+import socket
 
 import gevent
 
@@ -23,6 +24,7 @@ class FileServer(ConnectionServer):
             SiteManager.peer_blacklist.append((config.ip_external, self.port))  # Add myself to peer blacklist
         else:
             self.port_opened = None  # Is file server opened on router
+        self.upnp_port_opened = False
         self.sites = {}
         self.last_request = time.time()
         self.files_parsing = {}
@@ -69,13 +71,14 @@ class FileServer(ConnectionServer):
 
         self.log.info("Trying to open port using UpnpPunch...")
         try:
-            upnp_punch = UpnpPunch.open_port(self.port, 'ZeroNet')
-            upnp_punch = True
-        except Exception, err:
-            self.log.error("UpnpPunch run error: %s" % Debug.formatException(err))
-            upnp_punch = False
+            UpnpPunch.ask_to_open_port(self.port, 'ZeroNet', retries=3, protos=["TCP"])
+        except (UpnpPunch.UpnpError, UpnpPunch.IGDError, socket.error) as err:
+            self.log.error("UpnpPunch run error: %s" %
+                           Debug.formatException(err))
+            return False
 
-        if upnp_punch and self.testOpenport(port)["result"] is True:
+        if self.testOpenport(port)["result"] is True:
+            self.upnp_port_opened = True
             return True
 
         self.log.info("Upnp mapping failed :( Please forward port %s on your router to your ipaddress" % port)
@@ -165,7 +168,7 @@ class FileServer(ConnectionServer):
         self.port_opened = True
 
     # Check site file integrity
-    def checkSite(self, site, check_files=True):
+    def checkSite(self, site, check_files=False):
         if site.settings["serving"]:
             site.announce(mode="startup")  # Announce site to tracker
             site.update(check_files=check_files)  # Update site's content.json and download changed files
@@ -176,7 +179,7 @@ class FileServer(ConnectionServer):
 
     # Check sites integrity
     @util.Noparallel()
-    def checkSites(self, check_files=True, force_port_check=False):
+    def checkSites(self, check_files=False, force_port_check=False):
         self.log.debug("Checking sites...")
         sites_checking = False
         if self.port_opened is None or force_port_check:  # Test and open port if not tested yet
@@ -237,7 +240,7 @@ class FileServer(ConnectionServer):
                     if site.settings["own"]:  # Check connections more frequently on own sites to speed-up first connections
                         site.needConnections()
                     site.sendMyHashfield(3)
-                    site.updateHashfield(1)
+                    site.updateHashfield(3)
                     time.sleep(2)
 
     # Detects if computer back from wakeup
@@ -245,7 +248,8 @@ class FileServer(ConnectionServer):
         last_time = time.time()
         while 1:
             time.sleep(30)
-            if time.time() - max(self.last_request, last_time) > 60 * 3:  # If taken more than 3 minute then the computer was in sleep mode
+            if time.time() - max(self.last_request, last_time) > 60 * 3:
+                # If taken more than 3 minute then the computer was in sleep mode
                 self.log.info(
                     "Wakeup detected: time warp from %s to %s (%s sleep seconds), acting like startup..." %
                     (last_time, time.time(), time.time() - last_time)
@@ -271,6 +275,14 @@ class FileServer(ConnectionServer):
 
         ConnectionServer.start(self)
 
-        # thread_wakeup_watcher.kill(exception=Debug.Notify("Stopping FileServer"))
-        # thread_announce_sites.kill(exception=Debug.Notify("Stopping FileServer"))
         self.log.debug("Stopped.")
+
+    def stop(self):
+        if self.running and self.upnp_port_opened:
+            self.log.debug('Closing port %d' % self.port)
+            try:
+                UpnpPunch.ask_to_close_port(self.port, protos=["TCP"])
+                self.log.info('Closed port via upnp.')
+            except (UpnpPunch.UpnpError, UpnpPunch.IGDError), err:
+                self.log.info("Failed at attempt to use upnp to close port: %s" % err)
+        ConnectionServer.stop(self)
