@@ -18,7 +18,8 @@ RUN apt-get install \
 	msgpack-python \
 	python-gevent \
 	python-pip \
-	python-dev -y
+	python-dev \
+	sudo -y
 
 RUN pip install msgpack-python --upgrade
 
