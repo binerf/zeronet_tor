@@ -12,20 +12,20 @@ from Crypt import CryptConnection
 
 class Connection(object):
     __slots__ = (
-        "sock", "sock_wrapped", "ip", "port", "cert_pin", "site_lock", "id", "protocol", "type", "server", "unpacker", "req_id",
+        "sock", "sock_wrapped", "ip", "port", "cert_pin", "target_onion", "id", "protocol", "type", "server", "unpacker", "req_id",
         "handshake", "crypt", "connected", "event_connected", "closed", "start_time", "last_recv_time",
         "last_message_time", "last_send_time", "last_sent_time", "incomplete_buff_recv", "bytes_recv", "bytes_sent", "cpu_time",
         "last_ping_delay", "last_req_time", "last_cmd", "bad_actions", "sites", "name", "updateName", "waiting_requests", "waiting_streams"
     )
 
-    def __init__(self, server, ip, port, sock=None, site_lock=None):
+    def __init__(self, server, ip, port, sock=None, target_onion=None):
         self.sock = sock
         self.ip = ip
         self.port = port
         self.cert_pin = None
         if "#" in ip:
             self.ip, self.cert_pin = ip.split("#")
-        self.site_lock = site_lock  # Only this site requests allowed (for Tor)
+        self.target_onion = target_onion  # Requested onion adress
         self.id = server.last_connection_id
         server.last_connection_id += 1
         self.protocol = "?"
@@ -76,8 +76,15 @@ class Connection(object):
     def log(self, text):
         self.server.log.debug("%s > %s" % (self.name, text))
 
+    def getValidSites(self):
+        return [key for key, val in self.server.tor_manager.site_onions.items() if val == self.target_onion]
+
     def badAction(self, weight=1):
         self.bad_actions += weight
+        if self.bad_actions > 40:
+            self.close("Too many bad actions")
+        elif self.bad_actions > 20:
+            time.sleep(5)
 
     def goodAction(self):
         self.bad_actions = 0
@@ -91,8 +98,7 @@ class Connection(object):
                 raise Exception("Can't connect to onion addresses, no Tor controller present")
             self.sock = self.server.tor_manager.createSocket(self.ip, self.port)
         else:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect((self.ip, int(self.port)))
+            self.sock = socket.create_connection((self.ip, int(self.port)))
 
         # Implicit SSL
         if self.cert_pin:
@@ -111,7 +117,7 @@ class Connection(object):
     def handleIncomingConnection(self, sock):
         self.log("Incoming connection...")
         self.type = "in"
-        if self.ip != "127.0.0.1":   # Clearnet: Check implicit SSL
+        if self.ip not in config.ip_local:   # Clearnet: Check implicit SSL
             try:
                 if sock.recv(1, gevent.socket.MSG_PEEK) == "\x16":
                     self.log("Crypt in connection using implicit SSL")
@@ -161,7 +167,7 @@ class Connection(object):
         except Exception, err:
             if not self.closed:
                 self.log("Socket error: %s" % Debug.formatException(err))
-        self.close()  # MessageLoop ended, close connection
+        self.close("MessageLoop ended")  # MessageLoop ended, close connection
 
     # My handshake info
     def getHandshakeInfo(self):
@@ -171,18 +177,15 @@ class Connection(object):
         else:
             crypt_supported = CryptConnection.manager.crypt_supported
         # No peer id for onion connections
-        if self.ip.endswith(".onion") or self.ip == "127.0.0.1":
+        if self.ip.endswith(".onion") or self.ip in config.ip_local:
             peer_id = ""
         else:
             peer_id = self.server.peer_id
         # Setup peer lock from requested onion address
-        if self.handshake and self.handshake.get("target_ip", "").endswith(".onion"):
-            target_onion = self.handshake.get("target_ip").replace(".onion", "")  # My onion address
-            onion_sites = {v: k for k, v in self.server.tor_manager.site_onions.items()}  # Inverse, Onion: Site address
-            self.site_lock = onion_sites.get(target_onion)
-            if not self.site_lock:
-                self.server.log.warning("Unknown target onion address: %s" % target_onion)
-                self.site_lock = "unknown"
+        if self.handshake and self.handshake.get("target_ip", "").endswith(".onion") and self.server.tor_manager.start_onions:
+            self.target_onion = self.handshake.get("target_ip").replace(".onion", "")  # My onion address
+            if not self.server.tor_manager.site_onions.values():
+                self.server.log.warning("Unknown target onion address: %s" % self.target_onion)
 
         handshake = {
             "version": config.version,
@@ -195,8 +198,8 @@ class Connection(object):
             "crypt_supported": crypt_supported,
             "crypt": self.crypt
         }
-        if self.site_lock:
-            handshake["onion"] = self.server.tor_manager.getOnion(self.site_lock)
+        if self.target_onion:
+            handshake["onion"] = self.target_onion
         elif self.ip.endswith(".onion"):
             handshake["onion"] = self.server.tor_manager.getOnion("global")
 
@@ -232,7 +235,7 @@ class Connection(object):
         self.last_message_time = time.time()
         if message.get("cmd") == "response":  # New style response
             if message["to"] in self.waiting_requests:
-                if self.last_send_time:
+                if self.last_send_time and len(self.waiting_requests) == 1:
                     ping = time.time() - self.last_send_time
                     self.last_ping_delay = ping
                 self.waiting_requests[message["to"]].set(message)  # Set the response to event
@@ -246,14 +249,13 @@ class Connection(object):
                 if message.get("crypt") and not self.sock_wrapped:
                     self.crypt = message["crypt"]
                     server = (self.type == "in")
-                    self.log("Crypt out connection using: %s (server side: %s)..." % (self.crypt, server))
+                    self.log("Crypt out connection using: %s (server side: %s, ping: %.3fs)..." % (self.crypt, server, ping))
                     self.sock = CryptConnection.manager.wrapSocket(self.sock, self.crypt, server, cert_pin=self.cert_pin)
                     self.sock.do_handshake()
                     self.sock_wrapped = True
 
                 if not self.sock_wrapped and self.cert_pin:
-                    self.log("Crypt connection error: Socket not encrypted, but certificate pin present")
-                    self.close()
+                    self.close("Crypt connection error: Socket not encrypted, but certificate pin present")
                     return
 
                 self.setHandshake(message)
@@ -291,11 +293,10 @@ class Connection(object):
             except Exception, err:
                 self.log("Crypt connection error: %s, adding peerid %s as broken ssl." % (err, message["params"]["peer_id"]))
                 self.server.broken_ssl_peer_ids[message["params"]["peer_id"]] = True
-                self.close()
+                self.close("Broken ssl")
 
         if not self.sock_wrapped and self.cert_pin:
-            self.log("Crypt connection error: Socket not encrypted, but certificate pin present")
-            self.close()
+            self.close("Crypt connection error: Socket not encrypted, but certificate pin present")
 
     # Stream socket directly to a file
     def handleStream(self, message):
@@ -362,8 +363,7 @@ class Connection(object):
                 self.server.bytes_sent += len(data)
                 self.sock.sendall(data)
         except Exception, err:
-            self.log("Send errror: %s" % Debug.formatException(err))
-            self.close()
+            self.close("Send errror: %s" % Debug.formatException(err))
             return False
         self.last_sent_time = time.time()
         return True
@@ -388,8 +388,7 @@ class Connection(object):
     def request(self, cmd, params={}, stream_to=None):
         # Last command sent more than 10 sec ago, timeout
         if self.waiting_requests and self.protocol == "v2" and time.time() - max(self.last_req_time, self.last_recv_time) > 10:
-            self.log("Request %s timeout: %s" % (self.last_cmd, time.time() - self.last_send_time))
-            self.close()
+            self.close("Request %s timeout: %.3fs" % (self.last_cmd, time.time() - self.last_send_time))
             return False
 
         self.last_req_time = time.time()
@@ -419,7 +418,7 @@ class Connection(object):
             return False
 
     # Close connection
-    def close(self):
+    def close(self, reason="Unknown"):
         if self.closed:
             return False  # Already closed
         self.closed = True
@@ -427,11 +426,10 @@ class Connection(object):
         if self.event_connected:
             self.event_connected.set(False)
 
-        if config.debug_socket:
-            self.log(
-                "Closing connection, waiting_requests: %s, buff: %s..." %
-                (len(self.waiting_requests), self.incomplete_buff_recv)
-            )
+        self.log(
+            "Closing connection: %s, waiting_requests: %s, sites: %s, buff: %s..." %
+            (reason, len(self.waiting_requests), self.sites, self.incomplete_buff_recv)
+        )
         for request in self.waiting_requests.values():  # Mark pending requests failed
             request.set(False)
         self.waiting_requests = {}

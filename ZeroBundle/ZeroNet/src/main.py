@@ -30,14 +30,22 @@ if not config.arguments:  # Config parse failed, show the help screen and exit
 # Create necessary files and dirs
 if not os.path.isdir(config.log_dir):
     os.mkdir(config.log_dir)
+    try:
+        os.chmod(config.log_dir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    except Exception, err:
+        print "Can't change permission of %s: %s" % (config.log_dir, err)
+
 if not os.path.isdir(config.data_dir):
     os.mkdir(config.data_dir)
+    try:
+        os.chmod(config.data_dir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    except Exception, err:
+        print "Can't change permission of %s: %s" % (config.data_dir, err)
+
 if not os.path.isfile("%s/sites.json" % config.data_dir):
     open("%s/sites.json" % config.data_dir, "w").write("{}")
-    os.chmod("%s/sites.json" % config.data_dir, stat.S_IRUSR | stat.S_IWUSR)
 if not os.path.isfile("%s/users.json" % config.data_dir):
     open("%s/users.json" % config.data_dir, "w").write("{}")
-    os.chmod("%s/users.json" % config.data_dir, stat.S_IRUSR | stat.S_IWUSR)
 
 # Setup logging
 if config.action == "main":
@@ -99,24 +107,38 @@ config.parse()  # Parse again to add plugin configuration options
 # Log current config
 logging.debug("Config: %s" % config)
 
+# Modify stack size on special hardwares
+if config.stack_size:
+    import threading
+    threading.stack_size(config.stack_size)
+
 # Use pure-python implementation of msgpack to save CPU
 if config.msgpack_purepython:
     os.environ["MSGPACK_PUREPYTHON"] = "True"
 
-# Socks Proxy monkey patch
+# Socket monkey patch
 if config.proxy:
     from util import SocksProxy
     import urllib2
     logging.info("Patching sockets to socks proxy: %s" % config.proxy)
-    config.fileserver_ip = '127.0.0.1'  # Do not accept connections anywhere but localhost
+    if config.fileserver_ip == "*":
+        config.fileserver_ip = '127.0.0.1'  # Do not accept connections anywhere but localhost
     SocksProxy.monkeyPatch(*config.proxy.split(":"))
 elif config.tor == "always":
     from util import SocksProxy
     import urllib2
     logging.info("Patching sockets to tor socks proxy: %s" % config.tor_proxy)
-    config.fileserver_ip = '127.0.0.1'  # Do not accept connections anywhere but localhost
+    if config.fileserver_ip == "*":
+        config.fileserver_ip = '127.0.0.1'  # Do not accept connections anywhere but localhost
     SocksProxy.monkeyPatch(*config.tor_proxy.split(":"))
     config.disable_udp = True
+elif config.bind:
+    bind = config.bind
+    if ":" not in config.bind:
+        bind += ":0"
+    from util import helper
+    helper.socketBindMonkeyPatch(*bind.split(":"))
+
 # -- Actions --
 
 
@@ -180,7 +202,7 @@ class Actions(object):
 
         logging.info("Site created!")
 
-    def siteSign(self, address, privatekey=None, inner_path="content.json", publish=False):
+    def siteSign(self, address, privatekey=None, inner_path="content.json", publish=False, remove_missing_optional=False):
         from Site import Site
         from Site import SiteManager
         SiteManager.site_manager.load()
@@ -200,7 +222,7 @@ class Actions(object):
                 import getpass
                 privatekey = getpass.getpass("Private key (input hidden):")
         diffs = site.content_manager.getDiffs(inner_path)
-        succ = site.content_manager.sign(inner_path=inner_path, privatekey=privatekey, update_changed_files=True)
+        succ = site.content_manager.sign(inner_path=inner_path, privatekey=privatekey, update_changed_files=True, remove_missing_optional=remove_missing_optional)
         if succ and publish:
             self.sitePublish(address, inner_path=inner_path, diffs=diffs)
 
@@ -358,7 +380,11 @@ class Actions(object):
         else:
             # Already running, notify local client on new content
             logging.info("Sending siteReload")
-            my_peer = Peer("127.0.0.1", config.fileserver_port)
+            if config.fileserver_ip == "*":
+                my_peer = Peer("127.0.0.1", config.fileserver_port)
+            else:
+                my_peer = Peer(config.fileserver_ip, config.fileserver_port)
+
             logging.info(my_peer.request("siteReload", {"site": site.address, "inner_path": inner_path}))
             logging.info("Sending sitePublish")
             logging.info(my_peer.request("sitePublish", {"site": site.address, "inner_path": inner_path, "diffs": diffs}))

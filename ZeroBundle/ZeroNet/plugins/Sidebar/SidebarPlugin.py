@@ -65,12 +65,20 @@ class UiRequestPlugin(object):
 
 @PluginManager.registerTo("UiWebsocket")
 class UiWebsocketPlugin(object):
-
     def sidebarRenderPeerStats(self, body, site):
         connected = len([peer for peer in site.peers.values() if peer.connection and peer.connection.connected])
         connectable = len([peer_id for peer_id in site.peers.keys() if not peer_id.endswith(":0")])
         onion = len([peer_id for peer_id in site.peers.keys() if ".onion" in peer_id])
         peers_total = len(site.peers)
+
+        # Add myself
+        if site.settings["serving"]:
+            peers_total += 1
+            if site.connection_server.port_opened:
+                connectable += 1
+            if site.connection_server.tor_manager.start_onions:
+                onion += 1
+
         if peers_total:
             percent_connected = float(connected) / peers_total
             percent_connectable = float(connectable) / peers_total
@@ -191,7 +199,7 @@ class UiWebsocketPlugin(object):
                 size = max(0, size_other)
             elif extension == "Image":
                 size = size_filetypes.get("jpg", 0) + size_filetypes.get("png", 0) + size_filetypes.get("gif", 0)
-            elif extension == "total":
+            elif extension == "Total":
                 size = size_total
             else:
                 size = size_filetypes.get(extension, 0)
@@ -411,12 +419,11 @@ class UiWebsocketPlugin(object):
         # Choose content you want to sign
         contents = ["content.json"]
         contents += site.content_manager.contents.get("content.json", {}).get("includes", {}).keys()
-        if len(contents) > 1:
-            body.append(_(u"<div class='contents'>{_[Choose]}: "))
-            for content in contents:
-                content = cgi.escape(content, True)
-                body.append(_("<a href='#{content}' onclick='$(\"#input-contents\").val(\"{content}\"); return false'>{content}</a> "))
-            body.append("</div>")
+        body.append(_(u"<div class='contents'>{_[Choose]}: "))
+        for content in contents:
+            content = cgi.escape(content, True)
+            body.append(_("<a href='#{content}' onclick='$(\"#input-contents\").val(\"{content}\"); return false'>{content}</a> "))
+        body.append("</div>")
 
         body.append(_(u"""
              <div class='flex'>
@@ -561,7 +568,7 @@ class UiWebsocketPlugin(object):
                 globe_data += (lat, lon, ping)
             # Append myself
             loc = geodb.get(config.ip_external)
-            if loc:
+            if loc and loc.get("location"):
                 lat, lon = (loc["location"]["latitude"], loc["location"]["longitude"])
                 globe_data += (lat, lon, -0.135)
 
@@ -572,24 +579,16 @@ class UiWebsocketPlugin(object):
 
     def actionSiteSetOwned(self, to, owned):
         permissions = self.getPermissions(to)
-
-        if "Multiuser" in PluginManager.plugin_manager.plugin_names:
-            self.cmd("notification", ["info", "This function is disabled on this proxy"])
-            return False
-
         if "ADMIN" not in permissions:
             return self.response(to, "You don't have permission to run this command")
+
         self.site.settings["own"] = bool(owned)
 
     def actionSiteSetAutodownloadoptional(self, to, owned):
         permissions = self.getPermissions(to)
-
-        if "Multiuser" in PluginManager.plugin_manager.plugin_names:
-            self.cmd("notification", ["info", _["This function is disabled on this proxy"]])
-            return False
-
         if "ADMIN" not in permissions:
             return self.response(to, "You don't have permission to run this command")
+
         self.site.settings["autodownloadoptional"] = bool(owned)
         self.site.bad_files = {}
         gevent.spawn(self.site.update, check_files=True)
@@ -599,10 +598,6 @@ class UiWebsocketPlugin(object):
         permissions = self.getPermissions(to)
         if "ADMIN" not in permissions:
             return self.response(to, "You don't have permission to run this command")
-
-        if "Multiuser" in PluginManager.plugin_manager.plugin_names:
-            self.cmd("notification", ["info", _["This function is disabled on this proxy"]])
-            return False
 
         self.site.storage.closeDb()
         self.site.storage.getDb()

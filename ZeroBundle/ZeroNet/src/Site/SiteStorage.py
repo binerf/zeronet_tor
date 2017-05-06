@@ -19,8 +19,8 @@ from Plugin import PluginManager
 class SiteStorage(object):
     def __init__(self, site, allow_create=True):
         self.site = site
-        self.directory = "%s/%s" % (config.data_dir, self.site.address)  # Site data diretory
-        self.allowed_dir = os.path.abspath(self.directory.decode(sys.getfilesystemencoding()))  # Only serve file within this dir
+        self.directory = u"%s/%s" % (config.data_dir, self.site.address)  # Site data diretory
+        self.allowed_dir = os.path.abspath(self.directory)  # Only serve file within this dir
         self.log = site.log
         self.db = None  # Db class
         self.db_checked = False  # Checked db tables since startup
@@ -69,23 +69,27 @@ class SiteStorage(object):
                 self.openDb()
         return self.db
 
+    def updateDbFile(self, inner_path, file=None, cur=None):
+        path = self.getPath(inner_path)
+        return self.getDb().updateJson(path, file, cur)
+
     # Return possible db files for the site
     def getDbFiles(self):
         for content_inner_path, content in self.site.content_manager.contents.iteritems():
             # content.json file itself
-            if self.isFile(content_inner_path):  # Missing content.json file
-                yield self.getPath(content_inner_path), self.open(content_inner_path)
+            if self.isFile(content_inner_path):
+                yield content_inner_path, self.open(content_inner_path)
             else:
                 self.log.error("[MISSING] %s" % content_inner_path)
             # Data files in content.json
             content_inner_path_dir = helper.getDirname(content_inner_path)  # Content.json dir relative to site
-            for file_relative_path in content["files"].keys():
+            for file_relative_path in content.get("files", {}).keys() + content.get("files_optional", {}).keys():
                 if not file_relative_path.endswith(".json"):
                     continue  # We only interesed in json files
                 file_inner_path = content_inner_path_dir + file_relative_path  # File Relative to site dir
                 file_inner_path = file_inner_path.strip("/")  # Strip leading /
                 if self.isFile(file_inner_path):
-                    yield self.getPath(file_inner_path), self.open(file_inner_path)
+                    yield file_inner_path, self.open(file_inner_path)
                 else:
                     self.log.error("[MISSING] %s" % file_inner_path)
 
@@ -119,7 +123,7 @@ class SiteStorage(object):
         try:
             for file_inner_path, file in self.getDbFiles():
                 try:
-                    if self.db.loadJson(file_inner_path, file=file, cur=cur):
+                    if self.updateDbFile(file_inner_path, file=file, cur=cur):
                         found += 1
                 except Exception, err:
                     self.log.error("Error importing %s: %s" % (file_inner_path, Debug.formatException(err)))
@@ -166,8 +170,11 @@ class SiteStorage(object):
             with open(file_path, "wb") as file:
                 shutil.copyfileobj(content, file)  # Write buff to disk
         else:  # Simple string
-            with open(file_path, "wb") as file:
-                file.write(content)
+            if inner_path == "content.json" and os.path.isfile(file_path):
+                helper.atomicWrite(file_path, content)
+            else:
+                with open(file_path, "wb") as file:
+                    file.write(content)
         del content
         self.onUpdated(inner_path)
 
@@ -195,7 +202,7 @@ class SiteStorage(object):
             raise err
 
     # List files from a directory
-    def list(self, dir_inner_path):
+    def walk(self, dir_inner_path):
         directory = self.getPath(dir_inner_path)
         for root, dirs, files in os.walk(directory):
             root = root.replace("\\", "/")
@@ -206,9 +213,13 @@ class SiteStorage(object):
                 else:
                     yield file_name
 
+    # list directories in a directory
+    def list(self, dir_inner_path):
+        directory = self.getPath(dir_inner_path)
+        return os.listdir(directory)
+
     # Site content updated
     def onUpdated(self, inner_path, file=None):
-        file_path = self.getPath(inner_path)
         # Update Sql cache
         if inner_path == "dbschema.json":
             self.has_db = self.isFile("dbschema.json")
@@ -218,9 +229,9 @@ class SiteStorage(object):
                 self.openDb()
         elif not config.disable_db and inner_path.endswith(".json") and self.has_db:  # Load json file to db
             if config.verbose:
-                self.log.debug("Loading json file to db: %s" % inner_path)
+                self.log.debug("Loading json file to db: %s (file: %s)" % (inner_path, file))
             try:
-                self.getDb().loadJson(file_path, file)
+                self.updateDbFile(inner_path, file)
             except Exception, err:
                 self.log.error("Json %s load error: %s" % (inner_path, Debug.formatException(err)))
                 self.closeDb()
@@ -275,11 +286,10 @@ class SiteStorage(object):
         if not inner_path:
             return self.directory
 
-        file_path = u"%s/%s" % (self.directory, inner_path)
+        if ".." in inner_path:
+            raise Exception(u"File not allowed: %s" % inner_path)
 
-        if ".." in file_path:
-            raise Exception(u"File not allowed: %s" % file_path)
-        return file_path
+        return u"%s/%s" % (self.directory, inner_path)
 
     # Get site dir relative path
     def getInnerPath(self, path):
@@ -415,8 +425,8 @@ class SiteStorage(object):
                         os.unlink(path)
                         break
                     except Exception, err:
-                        self.log.error("Error removing %s: %s, try #%s" %  (path, err, retry))
-                    time.sleep(float(retry)/10)
+                        self.log.error("Error removing %s: %s, try #%s" % (path, err, retry))
+                    time.sleep(float(retry) / 10)
             self.onUpdated(inner_path, False)
 
         self.log.debug("Deleting empty dirs...")

@@ -29,7 +29,7 @@ class ConnectionServer:
             self.tor_manager = None
 
         self.connections = []  # Connections
-        self.whitelist = ("127.0.0.1",)  # No flood protection on this ips
+        self.whitelist = config.ip_local  # No flood protection on this ips
         self.ip_incoming = {}  # Incoming connections from ip in the last minute to avoid connection flood
         self.broken_ssl_peer_ids = {}  # Peerids of broken ssl connections
         self.ips = {}  # Connection by ip
@@ -55,7 +55,7 @@ class ConnectionServer:
         if port:  # Listen server on a port
             self.pool = Pool(1000)  # do not accept more than 1000 connections
             self.stream_server = StreamServer(
-                (ip.replace("*", ""), port), self.handleIncomingConnection, spawn=self.pool, backlog=500
+                (ip.replace("*", "0.0.0.0"), port), self.handleIncomingConnection, spawn=self.pool, backlog=500
             )
             if request_handler:
                 self.handleRequest = request_handler
@@ -97,7 +97,8 @@ class ConnectionServer:
 
     def getConnection(self, ip=None, port=None, peer_id=None, create=True, site=None):
         if ip.endswith(".onion") and self.tor_manager.start_onions and site:  # Site-unique connection for Tor
-            key = ip + site.address
+            site_onion = self.tor_manager.getOnion(site.address)
+            key = ip + site_onion
         else:
             key = ip
 
@@ -116,7 +117,7 @@ class ConnectionServer:
                 if connection.ip == ip:
                     if peer_id and connection.handshake.get("peer_id") != peer_id:  # Does not match
                         continue
-                    if ip.endswith(".onion") and self.tor_manager.start_onions and connection.site_lock != site.address:
+                    if ip.endswith(".onion") and self.tor_manager.start_onions and ip.replace(".onion", "") != connection.target_onion:
                         # For different site
                         continue
                     if not connection.connected and create:
@@ -131,32 +132,31 @@ class ConnectionServer:
                 raise Exception("This peer is not connectable")
             try:
                 if ip.endswith(".onion") and self.tor_manager.start_onions and site:  # Lock connection to site
-                    connection = Connection(self, ip, port, site_lock=site.address)
+                    connection = Connection(self, ip, port, target_onion=site_onion)
                 else:
                     connection = Connection(self, ip, port)
                 self.ips[key] = connection
                 self.connections.append(connection)
                 succ = connection.connect()
                 if not succ:
-                    connection.close()
+                    connection.close("Connection event return error")
                     raise Exception("Connection event return error")
 
             except Exception, err:
-                self.log.debug("%s Connect error: %s" % (ip, Debug.formatException(err)))
-                connection.close()
+                connection.close("%s Connect error: %s" % (ip, Debug.formatException(err)))
                 raise err
             return connection
         else:
             return None
 
     def removeConnection(self, connection):
-        self.log.debug("Removing %s..." % connection)
         # Delete if same as in registry
         if self.ips.get(connection.ip) == connection:
             del self.ips[connection.ip]
         # Site locked connection
-        if connection.site_lock and self.ips.get(connection.ip + connection.site_lock) == connection:
-            del self.ips[connection.ip + connection.site_lock]
+        if connection.target_onion:
+            if self.ips.get(connection.ip + connection.target_onion) == connection:
+                del self.ips[connection.ip + connection.target_onion]
         # Cert pinned connection
         if connection.cert_pin and self.ips.get(connection.ip + "#" + connection.cert_pin) == connection:
             del self.ips[connection.ip + "#" + connection.cert_pin]
@@ -182,42 +182,41 @@ class ConnectionServer:
                     connection.unpacker = None
 
                 elif connection.last_cmd == "announce" and idle > 20:  # Bootstrapper connection close after 20 sec
-                    connection.log("[Cleanup] Tracker connection: %s" % idle)
-                    connection.close()
+                    connection.close("[Cleanup] Tracker connection: %s" % idle)
 
                 if idle > 60 * 60:
                     # Wake up after 1h
-                    connection.log("[Cleanup] After wakeup, idle: %s" % idle)
-                    connection.close()
+                    connection.close("[Cleanup] After wakeup, idle: %s" % idle)
 
                 elif idle > 20 * 60 and connection.last_send_time < time.time() - 10:
                     # Idle more than 20 min and we have not sent request in last 10 sec
                     if not connection.ping():
-                        connection.close()
+                        connection.close("[Cleanup] Ping timeout")
 
                 elif idle > 10 and connection.incomplete_buff_recv > 0:
                     # Incomplete data with more than 10 sec idle
-                    connection.log("[Cleanup] Connection buff stalled")
-                    connection.close()
+                    connection.close("[Cleanup] Connection buff stalled")
 
-                elif idle > 10 and connection.waiting_requests and time.time() - connection.last_send_time > 10:
+                elif idle > 10 and connection.waiting_requests and time.time() - connection.last_send_time > 20:
                     # Sent command and no response in 10 sec
-                    connection.log(
-                        "[Cleanup] Command %s timeout: %s" % (connection.last_cmd, time.time() - connection.last_send_time)
+                    connection.close(
+                        "[Cleanup] Command %s timeout: %.3fs" % (connection.last_cmd, time.time() - connection.last_send_time)
                     )
-                    connection.close()
 
-                elif idle > 60 and connection.protocol == "?":  # No connection after 1 min
-                    connection.log("[Cleanup] Connect timeout: %s" % idle)
-                    connection.close()
+                elif idle > 30 and connection.protocol == "?":  # No connection after 30 sec
+                    connection.close(
+                        "[Cleanup] Connect timeout: %.3fs" % idle
+                    )
 
                 elif idle < 60 and connection.bad_actions > 40:
-                    connection.log("[Cleanup] Too many bad actions: %s" % connection.bad_actions)
-                    connection.close()
+                    connection.close(
+                        "[Cleanup] Too many bad actions: %s" % connection.bad_actions
+                    )
 
                 elif idle > 5*60 and connection.sites == 0:
-                    connection.log("[Cleanup] No site for connection")
-                    connection.close()
+                    connection.close(
+                        "[Cleanup] No site for connection"
+                    )
 
                 elif run_i % 30 == 0:
                     # Reset bad action counter every 30 min

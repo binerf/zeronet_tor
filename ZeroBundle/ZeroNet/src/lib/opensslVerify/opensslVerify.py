@@ -196,17 +196,19 @@ def openLibrary():
     global ssl
     try:
         if sys.platform.startswith("win"):
-            dll_path = "src/lib/opensslVerify/libeay32.dll"
+            dll_path = os.path.dirname(os.path.abspath(__file__)) + "/" + "libeay32.dll"
         elif sys.platform == "cygwin":
             dll_path = "/bin/cygcrypto-1.0.0.dll"
-        elif os.path.isfile("../lib/libcrypto.so"): # ZeroBundle
+        elif os.path.isfile("../lib/libcrypto.so"): # ZeroBundle OSX
             dll_path = "../lib/libcrypto.so"
+        elif os.path.isfile("/opt/lib/libcrypto.so.1.0.0"): # For optware and entware
+            dll_path = "/opt/lib/libcrypto.so.1.0.0"
         else:
             dll_path = "/usr/local/ssl/lib/libcrypto.so"
         ssl = _OpenSSL(dll_path)
         assert ssl
     except Exception, err:
-        ssl = _OpenSSL(ctypes.util.find_library('ssl') or ctypes.util.find_library('crypto') or ctypes.util.find_library('libcrypto') or 'libeay32')
+        ssl = _OpenSSL(ctypes.util.find_library('ssl.so.1.0') or ctypes.util.find_library('ssl') or ctypes.util.find_library('crypto') or ctypes.util.find_library('libcrypto') or 'libeay32')
     logging.debug("opensslVerify loaded: %s", ssl._lib)
 
 openLibrary()
@@ -329,7 +331,7 @@ def verify_message(address, signature, message):
 def SetCompactSignature(pkey, hash, signature):
     sig = base64.b64decode(signature)
     if len(sig) != 65:
-        raise BaseException("Wrong encoding")
+        raise Exception("Wrong encoding")
     nV = ord(sig[0])
     if nV < 27 or nV >= 35:
         return False
@@ -447,8 +449,8 @@ if __name__ == "__main__":
     import time
     import os
     import sys
-    sys.path.append("..")
-    from pybitcointools import bitcoin as btctools
+    sys.path.append("../pybitcointools")
+    import bitcoin as btctools
     print "OpenSSL version %s" % openssl_version
     print ssl._lib
     priv = "5JsunC55XGVqFQj5kPGK4MWgTL26jKbnPhjnmchSNPo75XXCwtk"
@@ -456,7 +458,7 @@ if __name__ == "__main__":
     sign = btctools.ecdsa_sign("hello", priv)  # HGbib2kv9gm9IJjDt1FXbXFczZi35u0rZR3iPUIt5GglDDCeIQ7v8eYXVNIaLoJRI4URGZrhwmsYQ9aVtRTnTfQ=
 
     s = time.time()
-    for i in range(100):
+    for i in range(1000):
         pubkey = getMessagePubkey("hello", sign)
         verified = btctools.pubkey_to_address(pubkey) == address
     print "100x Verified", verified, time.time() - s

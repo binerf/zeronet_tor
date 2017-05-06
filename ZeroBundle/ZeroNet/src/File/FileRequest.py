@@ -55,11 +55,16 @@ class FileRequest(object):
     def route(self, cmd, req_id, params):
         self.req_id = req_id
         # Don't allow other sites than locked
-        if "site" in params and self.connection.site_lock and self.connection.site_lock not in (params["site"], "global"):
-            self.response({"error": "Invalid site"})
-            self.log.error("Site lock violation: %s != %s" % (self.connection.site_lock != params["site"]))
-            self.connection.badAction(5)
-            return False
+        if "site" in params and self.connection.target_onion:
+            valid_sites = self.connection.getValidSites()
+            if params["site"] not in valid_sites:
+                self.response({"error": "Invalid site"})
+                self.connection.log(
+                    "%s site lock violation: %s not in %s, target onion: %s" %
+                    (params["site"], valid_sites, self.connection.target_onion)
+                )
+                self.connection.badAction(5)
+                return False
 
         if cmd == "update":
             event = "%s update %s %s" % (self.connection.id, params["site"], params["inner_path"])
@@ -74,10 +79,13 @@ class FileRequest(object):
             if cmd not in ["getFile", "streamFile"]:  # Skip IO bound functions
                 s = time.time()
                 if self.connection.cpu_time > 0.5:
-                    self.log.debug("Delay %s %s, cpu_time used by connection: %.3fs" % (self.connection.ip, cmd, self.connection.cpu_time))
+                    self.log.debug(
+                        "Delay %s %s, cpu_time used by connection: %.3fs" %
+                        (self.connection.ip, cmd, self.connection.cpu_time)
+                    )
                     time.sleep(self.connection.cpu_time)
                     if self.connection.cpu_time > 5:
-                        self.connection.close()
+                        self.connection.close("Cpu time: %.3fs" % self.connection.cpu_time)
             if func:
                 func(params)
             else:
@@ -92,13 +100,21 @@ class FileRequest(object):
         site = self.sites.get(params["site"])
         if not site or not site.settings["serving"]:  # Site unknown or not serving
             self.response({"error": "Unknown site"})
+            self.connection.badAction(1)
             return False
 
         if not params["inner_path"].endswith("content.json"):
             self.response({"error": "Only content.json update allowed"})
+            self.connection.badAction(5)
             return
 
-        content = json.loads(params["body"])
+        try:
+            content = json.loads(params["body"])
+        except Exception, err:
+            self.log.debug("Update for %s is invalid JSON: %s" % (params["inner_path"], err))
+            self.response({"error": "File invalid JSON"})
+            self.connection.badAction(5)
+            return
 
         file_uri = "%s/%s:%s" % (site.address, params["inner_path"], content["modified"])
 
@@ -173,7 +189,9 @@ class FileRequest(object):
                 file.seek(params["location"])
                 file.read_bytes = FILE_BUFF
                 file_size = os.fstat(file.fileno()).st_size
-                assert params["location"] <= file_size, "Bad file location"
+                if params["location"] > file_size:
+                    self.connection.badAction(5)
+                    raise Exception("Bad file location")
 
                 back = {
                     "body": file,
@@ -196,7 +214,7 @@ class FileRequest(object):
 
         except Exception, err:
             self.log.debug("GetFile read error: %s" % Debug.formatException(err))
-            self.response({"error": "File read error: %s" % Debug.formatException(err)})
+            self.response({"error": "File read error"})
             return False
 
     # New-style file streaming out of Msgpack context
@@ -212,7 +230,9 @@ class FileRequest(object):
                 file.seek(params["location"])
                 file_size = os.fstat(file.fileno()).st_size
                 stream_bytes = min(FILE_BUFF, file_size - params["location"])
-                assert stream_bytes >= 0, "Stream bytes out of range"
+                if stream_bytes < 0:
+                    self.connection.badAction(5)
+                    raise Exception("Bad file location")
 
                 back = {
                     "size": file_size,
@@ -240,7 +260,7 @@ class FileRequest(object):
 
         except Exception, err:
             self.log.debug("GetFile read error: %s" % Debug.formatException(err))
-            self.response({"error": "File read error: %s" % Debug.formatException(err)})
+            self.response({"error": "File read error"})
             return False
 
     # Peer exchange request
@@ -396,7 +416,7 @@ class FileRequest(object):
         self.response({"ok": "Updated"})
 
     def actionSiteReload(self, params):
-        if self.connection.ip != "127.0.0.1" and self.connection.ip != config.ip_external:
+        if self.connection.ip not in config.ip_local and self.connection.ip != config.ip_external:
             self.response({"error": "Only local host allowed"})
 
         site = self.sites.get(params["site"])
@@ -407,7 +427,7 @@ class FileRequest(object):
         self.response({"ok": "Reloaded"})
 
     def actionSitePublish(self, params):
-        if self.connection.ip != "127.0.0.1" and self.connection.ip != config.ip_external:
+        if self.connection.ip not in config.ip_local and self.connection.ip != config.ip_external:
             self.response({"error": "Only local host allowed"})
 
         site = self.sites.get(params["site"])

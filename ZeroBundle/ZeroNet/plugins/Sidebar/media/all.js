@@ -187,21 +187,21 @@ window.initScrollable = function () {
 
 (function() {
   var Sidebar,
-    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    __hasProp = {}.hasOwnProperty;
+    bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
 
-  Sidebar = (function(_super) {
-    __extends(Sidebar, _super);
+  Sidebar = (function(superClass) {
+    extend(Sidebar, superClass);
 
     function Sidebar() {
-      this.unloadGlobe = __bind(this.unloadGlobe, this);
-      this.displayGlobe = __bind(this.displayGlobe, this);
-      this.loadGlobe = __bind(this.loadGlobe, this);
-      this.animDrag = __bind(this.animDrag, this);
-      this.setHtmlTag = __bind(this.setHtmlTag, this);
-      this.waitMove = __bind(this.waitMove, this);
-      this.resized = __bind(this.resized, this);
+      this.unloadGlobe = bind(this.unloadGlobe, this);
+      this.displayGlobe = bind(this.displayGlobe, this);
+      this.loadGlobe = bind(this.loadGlobe, this);
+      this.animDrag = bind(this.animDrag, this);
+      this.setHtmlTag = bind(this.setHtmlTag, this);
+      this.waitMove = bind(this.waitMove, this);
+      this.resized = bind(this.resized, this);
       this.tag = null;
       this.container = null;
       this.opened = false;
@@ -237,8 +237,11 @@ window.initScrollable = function () {
        */
       this.fixbutton.on("mousedown touchstart", (function(_this) {
         return function(e) {
+          if (e.button > 0) {
+            return;
+          }
           e.preventDefault();
-          _this.fixbutton.off("click touchstop touchcancel");
+          _this.fixbutton.off("click touchend touchcancel");
           _this.fixbutton.off("mousemove touchmove");
           _this.dragStarted = +(new Date);
           return _this.fixbutton.one("mousemove touchmove", function(e) {
@@ -252,7 +255,7 @@ window.initScrollable = function () {
           });
         };
       })(this));
-      this.fixbutton.parent().on("click touchstop touchcancel", (function(_this) {
+      this.fixbutton.parent().on("click touchend touchcancel", (function(_this) {
         return function(e) {
           return _this.stopDrag();
         };
@@ -294,7 +297,7 @@ window.initScrollable = function () {
       })(this));
       this.fixbutton.parents().on("mousemove touchmove", this.animDrag);
       this.fixbutton.parents().on("mousemove touchmove", this.waitMove);
-      return this.fixbutton.parents().on("mouseup touchstop touchend touchcancel", (function(_this) {
+      return this.fixbutton.parents().on("mouseup touchend touchend touchcancel", (function(_this) {
         return function(e) {
           e.preventDefault();
           return _this.stopDrag();
@@ -470,23 +473,25 @@ window.initScrollable = function () {
     Sidebar.prototype.onOpened = function() {
       this.log("Opened");
       this.scrollable();
-      this.tag.find("#checkbox-owned").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-owned").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           return setTimeout((function() {
             return _this.scrollable();
           }), 300);
         };
       })(this));
-      this.tag.find("#button-sitelimit").off("click").on("click", (function(_this) {
+      this.tag.find("#button-sitelimit").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          wrapper.ws.cmd("siteSetLimit", $("#input-sitelimit").val(), function() {
-            wrapper.notifications.add("done-sitelimit", "done", "Site storage limit modified!", 5000);
+          wrapper.ws.cmd("siteSetLimit", $("#input-sitelimit").val(), function(res) {
+            if (res === "ok") {
+              wrapper.notifications.add("done-sitelimit", "done", "Site storage limit modified!", 5000);
+            }
             return _this.updateHtmlTag();
           });
           return false;
         };
       })(this));
-      this.tag.find("#button-dbreload").off("click").on("click", (function(_this) {
+      this.tag.find("#button-dbreload").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           wrapper.ws.cmd("dbReload", [], function() {
             wrapper.notifications.add("done-dbreload", "done", "Database schema reloaded!", 5000);
@@ -495,7 +500,7 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#button-dbrebuild").off("click").on("click", (function(_this) {
+      this.tag.find("#button-dbrebuild").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           wrapper.notifications.add("done-dbrebuild", "info", "Database rebuilding....");
           wrapper.ws.cmd("dbRebuild", [], function() {
@@ -505,7 +510,7 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#button-update").off("click").on("click", (function(_this) {
+      this.tag.find("#button-update").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           _this.tag.find("#button-update").addClass("loading");
           wrapper.ws.cmd("siteUpdate", wrapper.site_info.address, function() {
@@ -515,21 +520,21 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#button-pause").off("click").on("click", (function(_this) {
+      this.tag.find("#button-pause").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           _this.tag.find("#button-pause").addClass("hidden");
           wrapper.ws.cmd("sitePause", wrapper.site_info.address);
           return false;
         };
       })(this));
-      this.tag.find("#button-resume").off("click").on("click", (function(_this) {
+      this.tag.find("#button-resume").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           _this.tag.find("#button-resume").addClass("hidden");
           wrapper.ws.cmd("siteResume", wrapper.site_info.address);
           return false;
         };
       })(this));
-      this.tag.find("#button-delete").off("click").on("click", (function(_this) {
+      this.tag.find("#button-delete").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           wrapper.displayConfirm("Are you sure?", "Delete this site", function() {
             _this.tag.find("#button-delete").addClass("loading");
@@ -540,28 +545,28 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#checkbox-owned").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-owned").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           return wrapper.ws.cmd("siteSetOwned", [_this.tag.find("#checkbox-owned").is(":checked")]);
         };
       })(this));
-      this.tag.find("#checkbox-autodownloadoptional").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-autodownloadoptional").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           return wrapper.ws.cmd("siteSetAutodownloadoptional", [_this.tag.find("#checkbox-autodownloadoptional").is(":checked")]);
         };
       })(this));
-      this.tag.find("#button-identity").off("click").on("click", (function(_this) {
+      this.tag.find("#button-identity").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           wrapper.ws.cmd("certSelect");
           return false;
         };
       })(this));
-      this.tag.find("#checkbox-owned").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-owned").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           return wrapper.ws.cmd("siteSetOwned", [_this.tag.find("#checkbox-owned").is(":checked")]);
         };
       })(this));
-      this.tag.find("#button-settings").off("click").on("click", (function(_this) {
+      this.tag.find("#button-settings").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           wrapper.ws.cmd("fileGet", "content.json", function(res) {
             var data, json_raw;
@@ -581,7 +586,7 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#button-sign").off("click").on("click", (function(_this) {
+      this.tag.find("#button-sign").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           var inner_path;
           inner_path = _this.tag.find("#input-contents").val();
@@ -609,7 +614,7 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#button-publish").off("click").on("click", (function(_this) {
+      this.tag.find("#button-publish").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           var inner_path;
           inner_path = _this.tag.find("#input-contents").val();
@@ -661,7 +666,7 @@ window.initScrollable = function () {
       return img.onload = (function(_this) {
         return function() {
           return wrapper.ws.cmd("sidebarGetPeers", [], function(globe_data) {
-            var e, _ref, _ref1;
+            var e, ref, ref1;
             if (_this.globe) {
               _this.globe.scene.remove(_this.globe.points);
               _this.globe.addData(globe_data, {
@@ -681,15 +686,15 @@ window.initScrollable = function () {
                 });
                 _this.globe.createPoints();
                 _this.globe.animate();
-              } catch (_error) {
-                e = _error;
+              } catch (error) {
+                e = error;
                 console.log("WebGL error", e);
-                if ((_ref = _this.tag) != null) {
-                  _ref.find(".globe").addClass("error").text("WebGL not supported");
+                if ((ref = _this.tag) != null) {
+                  ref.find(".globe").addClass("error").text("WebGL not supported");
                 }
               }
             }
-            return (_ref1 = _this.tag) != null ? _ref1.find(".globe").removeClass("loading") : void 0;
+            return (ref1 = _this.tag) != null ? ref1.find(".globe").removeClass("loading") : void 0;
           });
         };
       })(this);
