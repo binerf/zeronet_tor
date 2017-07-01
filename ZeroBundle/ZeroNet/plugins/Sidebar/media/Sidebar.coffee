@@ -303,10 +303,19 @@ class Sidebar extends Class
 
 		# Delete site
 		@tag.find("#button-delete").off("click touchend").on "click touchend", =>
-			wrapper.displayConfirm "Are you sure?", "Delete this site", =>
-				@tag.find("#button-delete").addClass("loading")
-				wrapper.ws.cmd "siteDelete", wrapper.site_info.address, ->
-					document.location = $(".fixbutton-bg").attr("href")
+			wrapper.displayConfirm "Are you sure?", ["Delete this site", "Blacklist"], (confirmed) =>
+				if confirmed == 1
+					@tag.find("#button-delete").addClass("loading")
+					wrapper.ws.cmd "siteDelete", wrapper.site_info.address, ->
+						document.location = $(".fixbutton-bg").attr("href")
+				else if confirmed == 2
+					wrapper.displayPrompt "Blacklist this site", "text", "Delete and Blacklist", "Reason", (reason) =>
+						@tag.find("#button-delete").addClass("loading")
+						wrapper.ws.cmd "blacklistAdd", [wrapper.site_info.address, reason]
+						wrapper.ws.cmd "siteDelete", wrapper.site_info.address, ->
+							document.location = $(".fixbutton-bg").attr("href")
+
+
 			return false
 
 		# Owned checkbox
@@ -345,17 +354,19 @@ class Sidebar extends Class
 		@tag.find("#button-sign").off("click touchend").on "click touchend", =>
 			inner_path = @tag.find("#input-contents").val()
 
-			if wrapper.site_info.privatekey
-				# Privatekey stored in users.json
-				wrapper.ws.cmd "siteSign", {privatekey: "stored", inner_path: inner_path, update_changed_files: true}, (res) =>
-					wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
-
-			else
-				# Ask the user for privatekey
-				wrapper.displayPrompt "Enter your private key:", "password", "Sign", (privatekey) => # Prompt the private key
-					wrapper.ws.cmd "siteSign", {privatekey: privatekey, inner_path: inner_path, update_changed_files: true}, (res) =>
+			wrapper.ws.cmd "fileRules", {inner_path: inner_path}, (res) =>
+				if wrapper.site_info.privatekey or wrapper.site_info.auth_address in res.signers
+					# Privatekey stored in users.json
+					wrapper.ws.cmd "siteSign", {privatekey: "stored", inner_path: inner_path, update_changed_files: true}, (res) =>
 						if res == "ok"
 							wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
+
+				else
+					# Ask the user for privatekey
+					wrapper.displayPrompt "Enter your private key:", "password", "Sign", "", (privatekey) => # Prompt the private key
+						wrapper.ws.cmd "siteSign", {privatekey: privatekey, inner_path: inner_path, update_changed_files: true}, (res) =>
+							if res == "ok"
+								wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
 
 			return false
 
