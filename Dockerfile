@@ -19,6 +19,7 @@ RUN apt-get install \
 	python-gevent \
 	python-pip \
 	python-dev \
+	python-sqlalchemy \
 	sudo -y
 
 RUN pip install msgpack-python --upgrade
