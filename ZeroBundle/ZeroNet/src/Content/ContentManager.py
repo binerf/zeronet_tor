@@ -11,6 +11,7 @@ from Crypt import CryptHash
 from Config import config
 from util import helper
 from util import Diff
+from util import SafeRe
 from Peer import PeerHashfield
 from ContentDbDict import ContentDbDict
 
@@ -408,7 +409,7 @@ class ContentManager(object):
         if "signers" in rules:
             rules["signers"] = rules["signers"][:]  # Make copy of the signers
         for permission_pattern, permission_rules in user_contents["permission_rules"].items():  # Regexp rules
-            if not re.match(permission_pattern, user_urn):
+            if not SafeRe.match(permission_pattern, user_urn):
                 continue  # Rule is not valid for user
             # Update rules if its better than current recorded ones
             for key, val in permission_rules.iteritems():
@@ -464,11 +465,32 @@ class ContentManager(object):
                     self.site.storage.delete(file_inner_path + "-old")
         return diffs
 
+    def hashFile(self, dir_inner_path, file_relative_path, optional=False):
+        back = {}
+        file_inner_path = dir_inner_path + "/" + file_relative_path
+
+        file_path = self.site.storage.getPath(file_inner_path)
+        file_size = os.path.getsize(file_path)
+        sha512sum = CryptHash.sha512sum(file_path)  # Calculate sha512 sum of file
+        if optional and not self.hashfield.hasHash(sha512sum):
+            self.optionalDownloaded(file_inner_path, sha512sum, file_size, own=True)
+
+        back[file_relative_path] = {"sha512": sha512sum, "size": os.path.getsize(file_path)}
+        return back
+
+    def isValidRelativePath(self, relative_path):
+        if ".." in relative_path:
+            return False
+        elif len(relative_path) > 255:
+            return False
+        else:
+            return re.match("^[a-z\[\]\(\) A-Z0-9_@=\.\+-/]+$", relative_path)
+
     # Hash files in directory
     def hashFiles(self, dir_inner_path, ignore_pattern=None, optional_pattern=None):
         files_node = {}
         files_optional_node = {}
-        if not re.match("^[a-zA-Z0-9_@=\.\+-/]*$", dir_inner_path):
+        if dir_inner_path and not self.isValidRelativePath(dir_inner_path):
             ignored = True
             self.log.error("- [ERROR] Only ascii encoded directories allowed: %s" % dir_inner_path)
 
@@ -478,36 +500,37 @@ class ContentManager(object):
             ignored = optional = False
             if file_name == "content.json":
                 ignored = True
-            elif ignore_pattern and re.match(ignore_pattern, file_relative_path):
+            elif ignore_pattern and SafeRe.match(ignore_pattern, file_relative_path):
                 ignored = True
             elif file_name.startswith(".") or file_name.endswith("-old") or file_name.endswith("-new"):
                 ignored = True
-            elif not re.match("^[a-zA-Z0-9_@=\.\+\-/]+$", file_relative_path):
+            elif not self.isValidRelativePath(file_relative_path):
                 ignored = True
-                self.log.error("- [ERROR] Only ascii encoded filenames allowed: %s" % file_relative_path)
-            elif optional_pattern and re.match(optional_pattern, file_relative_path):
+                self.log.error("- [ERROR] Invalid filename: %s" % file_relative_path)
+            elif optional_pattern and SafeRe.match(optional_pattern, file_relative_path):
                 optional = True
 
             if ignored:  # Ignore content.json, defined regexp and files starting with .
                 self.log.info("- [SKIPPED] %s" % file_relative_path)
             else:
-                file_inner_path = dir_inner_path + "/" + file_relative_path
-                file_path = self.site.storage.getPath(file_inner_path)
-                sha512sum = CryptHash.sha512sum(file_path)  # Calculate sha512 sum of file
                 if optional:
-                    self.log.info("- [OPTIONAL] %s (SHA512: %s)" % (file_relative_path, sha512sum))
-                    file_size = os.path.getsize(file_path)
-                    files_optional_node[file_relative_path] = {"sha512": sha512sum, "size": file_size}
-                    if not self.hashfield.hasHash(sha512sum):
-                        self.optionalDownloaded(file_inner_path, sha512sum, file_size, own=True)
+                    self.log.info("- [OPTIONAL] %s" % file_relative_path)
+                    files_optional_node.update(
+                        self.hashFile(dir_inner_path, file_relative_path, optional=True)
+                    )
                 else:
-                    self.log.info("- %s (SHA512: %s)" % (file_relative_path, sha512sum))
-                    files_node[file_relative_path] = {"sha512": sha512sum, "size": os.path.getsize(file_path)}
+                    self.log.info("- %s" % file_relative_path)
+                    files_node.update(
+                        self.hashFile(dir_inner_path, file_relative_path)
+                    )
         return files_node, files_optional_node
 
     # Create and sign a content.json
     # Return: The new content if filewrite = False
     def sign(self, inner_path="content.json", privatekey=None, filewrite=True, update_changed_files=False, extend=None, remove_missing_optional=False):
+        if not inner_path.endswith("content.json"):
+            raise SignError("Invalid file name, you can only sign content.json files")
+
         if inner_path in self.contents:
             content = self.contents.get(inner_path)
             if content and content.get("cert_sign", False) is None and self.site.storage.isFile(inner_path):
@@ -711,13 +734,26 @@ class ContentManager(object):
             task = self.site.worker_manager.findTask(inner_path)
             if task:  # Dont try to download from other peers
                 self.site.worker_manager.failTask(task)
-            raise VerifyError("Site too large %s > %s, aborting task..." % (site_size, site_size_limit))
+            raise VerifyError("Site too large %sB > %sB, aborting task..." % (site_size, site_size_limit))
+
+        # Verify valid filenames
+        for file_relative_path in content.get("files", {}).keys() + content.get("files_optional", {}).keys():
+            if not self.isValidRelativePath(file_relative_path):
+                raise VerifyError("Invalid relative path: %s" % file_relative_path)
 
         if inner_path == "content.json":
             self.site.settings["size"] = site_size
             self.site.settings["size_optional"] = site_size_optional
             return True  # Root content.json is passed
+        else:
+            if self.verifyContentInclude(inner_path, content, content_size, content_size_optional):
+                self.site.settings["size"] = site_size
+                self.site.settings["size_optional"] = site_size_optional
+                return True
+            else:
+                return False
 
+    def verifyContentInclude(self, inner_path, content, content_size, content_size_optional):
         # Load include details
         rules = self.getRules(inner_path, content)
         if not rules:
@@ -726,31 +762,28 @@ class ContentManager(object):
         # Check include size limit
         if rules.get("max_size") is not None:  # Include size limit
             if content_size > rules["max_size"]:
-                raise VerifyError("Include too large %s > %s" % (content_size, rules["max_size"]))
+                raise VerifyError("Include too large %sB > %sB" % (content_size, rules["max_size"]))
 
         if rules.get("max_size_optional") is not None:  # Include optional files limit
             if content_size_optional > rules["max_size_optional"]:
-                raise VerifyError("Include optional files too large %s > %s" % (
+                raise VerifyError("Include optional files too large %sB > %sB" % (
                     content_size_optional, rules["max_size_optional"])
                 )
 
         # Filename limit
         if rules.get("files_allowed"):
             for file_inner_path in content["files"].keys():
-                if not re.match("^%s$" % rules["files_allowed"], file_inner_path):
+                if not SafeRe.match("^%s$" % rules["files_allowed"], file_inner_path):
                     raise VerifyError("File not allowed: %s" % file_inner_path)
 
         if rules.get("files_allowed_optional"):
             for file_inner_path in content.get("files_optional", {}).keys():
-                if not re.match("^%s$" % rules["files_allowed_optional"], file_inner_path):
+                if not SafeRe.match("^%s$" % rules["files_allowed_optional"], file_inner_path):
                     raise VerifyError("Optional file not allowed: %s" % file_inner_path)
 
         # Check if content includes allowed
         if rules.get("includes_allowed") is False and content.get("includes"):
             raise VerifyError("Includes not allowed")
-
-        self.site.settings["size"] = site_size
-        self.site.settings["size_optional"] = site_size_optional
 
         return True  # All good
 

@@ -131,6 +131,9 @@ class Site(object):
         if config.verbose:
             self.log.debug("Downloading %s..." % inner_path)
 
+        if not inner_path.endswith("content.json"):
+            return False
+
         found = self.needFile(inner_path, update=self.bad_files.get(inner_path))
         content_inner_dir = helper.getDirname(inner_path)
         if not found:
@@ -235,6 +238,19 @@ class Site(object):
         file_inner_paths = []
         for bad_file, tries in self.bad_files.items():
             if force or random.randint(0, min(40, tries)) < 4:  # Larger number tries = less likely to check every 15min
+                # Skip files without info
+                file_info = self.content_manager.getFileInfo(bad_file)
+                if bad_file.endswith("content.json"):
+                    if file_info is False:
+                        del self.bad_files[bad_file]
+                        self.log.debug("No info for file: %s, removing from bad_files" % bad_file)
+                        continue
+                else:
+                    if file_info is False or not file_info.get("size"):
+                        del self.bad_files[bad_file]
+                        self.log.debug("No info for file: %s, removing from bad_files" % bad_file)
+                        continue
+
                 if bad_file.endswith("content.json"):
                     content_inner_paths.append(bad_file)
                 else:
