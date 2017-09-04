@@ -68,6 +68,10 @@ class Site(object):
             self.settings["wrapper_key"] = CryptHash.random()
             self.log.debug("New wrapper key: %s" % self.settings["wrapper_key"])
 
+        if not self.settings.get("ajax_key"):  # To auth websocket permissions
+            self.settings["ajax_key"] = CryptHash.random()
+            self.log.debug("New ajax key: %s" % self.settings["ajax_key"])
+
     def __str__(self):
         return "Site %s" % self.address_short
 
@@ -96,6 +100,8 @@ class Site(object):
                 "own": False, "serving": True, "permissions": [],
                 "added": int(time.time()), "optional_downloaded": 0, "size_optional": 0
             }  # Default
+            if config.download_optional == "auto":
+                self.settings["autodownloadoptional"] = True
 
         # Add admin permissions to homepage
         if self.address == config.homepage and "ADMIN" not in self.settings["permissions"]:
@@ -163,14 +169,29 @@ class Site(object):
                 diff_actions = diffs.get(file_relative_path)
                 if diff_actions and self.bad_files.get(file_inner_path):
                     try:
+                        s = time.time()
                         new_file = Diff.patch(self.storage.open(file_inner_path, "rb"), diff_actions)
                         new_file.seek(0)
+                        time_diff = time.time() - s
+
+                        s = time.time()
                         diff_success = self.content_manager.verifyFile(file_inner_path, new_file)
+                        time_verify = time.time() - s
+
                         if diff_success:
-                            self.log.debug("Patched successfully: %s" % file_inner_path)
+                            s = time.time()
                             new_file.seek(0)
                             self.storage.write(file_inner_path, new_file)
+                            time_write = time.time() - s
+
+                            s = time.time()
                             self.onFileDone(file_inner_path)
+                            time_on_done = time.time() - s
+
+                            self.log.debug(
+                                "Patched successfully: %s (diff: %.3fs, verify: %.3fs, write: %.3fs, on_done: %.3fs)" %
+                                (file_inner_path, time_diff, time_verify, time_write, time_on_done)
+                            )
                     except Exception, err:
                         self.log.debug("Failed to patch %s: %s" % (file_inner_path, err))
                         diff_success = False
@@ -265,6 +286,10 @@ class Site(object):
     # Download all files of the site
     @util.Noparallel(blocking=False)
     def download(self, check_size=False, blind_includes=False):
+        if not self.connection_server:
+            self.log.debug("No connection server found, skipping download")
+            return False
+
         self.log.debug(
             "Start downloading, bad_files: %s, check_size: %s, blind_includes: %s" %
             (self.bad_files, check_size, blind_includes)

@@ -13,6 +13,7 @@ from util import RateLimit
 from util import StreamingMsgpack
 from util import helper
 from Plugin import PluginManager
+from contextlib import closing
 
 FILE_BUFF = 1024 * 512
 
@@ -145,7 +146,7 @@ class FileRequest(object):
                 peer = site.addPeer(self.connection.ip, self.connection.port, return_peer=True)  # Add or get peer
                 # On complete publish to other peers
                 diffs = params.get("diffs", {})
-                site.onComplete.once(lambda: site.publish(inner_path=inner_path, diffs=diffs, limit=2), "publish_%s" % inner_path)
+                site.onComplete.once(lambda: site.publish(inner_path=inner_path, diffs=diffs, limit=3), "publish_%s" % inner_path)
 
                 # Load new content file and download changed files in new thread
                 def downloader():
@@ -229,7 +230,8 @@ class FileRequest(object):
             self.log.debug("GetFile %s %s request error: %s" % (self.connection, params["inner_path"], Debug.formatException(err)))
             self.response({"error": "File read error: %s" % err})
         except Exception, err:
-            self.log.debug("GetFile read error: %s" % Debug.formatException(err))
+            if config.verbose:
+                self.log.debug("GetFile read error: %s" % Debug.formatException(err))
             self.response({"error": "File read error"})
             return False
 
@@ -454,6 +456,15 @@ class FileRequest(object):
     # Send a simple Pong! answer
     def actionPing(self, params):
         self.response("Pong!")
+
+    # Check requested port of the other peer
+    def actionCheckport(self, params):
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            sock.settimeout(5)
+            if sock.connect_ex((self.connection.ip, params["port"])) == 0:
+                self.response({"status": "open", "ip_external": self.connection.ip})
+            else:
+                self.response({"status": "closed", "ip_external": self.connection.ip})
 
     # Unknown command
     def actionUnknown(self, cmd, params):

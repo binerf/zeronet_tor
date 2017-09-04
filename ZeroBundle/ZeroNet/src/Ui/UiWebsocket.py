@@ -34,8 +34,8 @@ class UiWebsocket(object):
         self.send_queue = []  # Messages to send to client
         self.admin_commands = (
             "sitePause", "siteResume", "siteDelete", "siteList", "siteSetLimit", "siteClone",
-            "channelJoinAllsite", "serverUpdate", "serverPortcheck", "serverShutdown", "certSet", "configSet",
-            "permissionAdd", "permissionRemove"
+            "channelJoinAllsite", "serverUpdate", "serverPortcheck", "serverShutdown", "serverShowdirectory",
+            "certSet", "configSet", "permissionAdd", "permissionRemove"
         )
         self.async_commands = ("fileGet", "fileList", "dirList")
 
@@ -382,6 +382,7 @@ class UiWebsocket(object):
         except Exception, err:
             self.cmd("notification", ["error", _["Content signing failed"] + "<br><small>%s</small>" % err])
             self.response(to, {"error": "Site sign failed: %s" % err})
+            self.log.error("Site sign failed: %s: %s" % (inner_path, Debug.formatException(err)))
             return
 
         site.content_manager.loadContent(inner_path, add_bad_files=False)  # Load new content.json, ignore errors
@@ -604,6 +605,14 @@ class UiWebsocket(object):
             import base64
             body = base64.b64encode(body)
         return self.response(to, body)
+
+    def actionFileNeed(self, to, inner_path, timeout=300):
+        try:
+            with gevent.Timeout(timeout):
+                self.site.needFile(inner_path, priority=6)
+        except Exception, err:
+            return self.response(to, {"error": str(err)})
+        return self.response(to, "ok")
 
     def actionFileRules(self, to, inner_path):
         rules = self.site.content_manager.getRules(inner_path)
@@ -847,6 +856,10 @@ class UiWebsocket(object):
     def actionServerShutdown(self, to):
         sys.modules["main"].file_server.stop()
         sys.modules["main"].ui_server.stop()
+
+    def actionServerShowdirectory(self, to, directory="backup"):
+        import webbrowser
+        webbrowser.open('file://' + os.path.abspath(config.data_dir))
 
     def actionConfigSet(self, to, key, value):
         if key not in ["tor", "language"]:

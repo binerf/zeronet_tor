@@ -764,6 +764,9 @@ jQuery.extend( jQuery.easing,
       elem.animate({
         "width": width
       }, 700, "easeInOutCubic");
+      $(".body", elem).css({
+        "width": width - 80
+      });
       $(".body", elem).cssLater("box-shadow", "0px 0px 5px rgba(0,0,0,0.1)", 1000);
       $(".close, .button", elem).on("click", (function(_this) {
         return function() {
@@ -802,7 +805,6 @@ jQuery.extend( jQuery.easing,
   window.Notifications = Notifications;
 
 }).call(this);
-
 
 
 /* ---- src/Ui/media/Wrapper.coffee ---- */
@@ -929,6 +931,7 @@ jQuery.extend( jQuery.easing,
       }
       message = e.data;
       if (!message.cmd) {
+        this.log("Invalid message:", message);
         return false;
       }
       if (window.postmessage_nonce_security && message.wrapper_nonce !== window.wrapper_nonce) {
@@ -978,6 +981,12 @@ jQuery.extend( jQuery.easing,
           "cmd": "response",
           "to": message.id,
           "result": window.history.state
+        });
+      } else if (cmd === "wrapperGetAjaxKey") {
+        return this.sendInner({
+          "cmd": "response",
+          "to": message.id,
+          "result": window.ajax_key
         });
       } else if (cmd === "wrapperOpenWindow") {
         return this.actionOpenWindow(message.params);
