@@ -1,3 +1,182 @@
+## ZeroNet 0.6.4 (2018-10-20) Rev3660
+### Added
+ - New plugin: UiConfig. A web interface that allows changing ZeroNet settings.
+ - New plugin: AnnounceShare. Share trackers between users, automatically announce client's ip as tracker if Bootstrapper plugin is enabled.
+ - Global tracker stats on ZeroHello: Include statistics from all served sites instead of displaying request statistics only for one site.
+ - Support custom proxy for trackers. (Configurable with /Config)
+ - Adding peers to sites manually using zeronet_peers get parameter
+ - Copy site address with peers link on the sidebar.
+ - Zip file listing and streaming support for Bigfiles.
+ - Tracker statistics on /Stats page
+ - Peer reputation save/restore to speed up sync time after startup.
+ - Full support fileGet, fileList, dirList calls on tar.gz/zip files.
+ - Archived_before support to user content rules to allow deletion of all user files before the specified date
+ - Show and manage "Connecting" sites on ZeroHello
+ - Add theme support to ZeroNet sites
+ - Dark theme for ZeroHello, ZeroBlog, ZeroTalk
+
+### Changed
+ - Dynamic big file allocation: More efficient storage usage by don't pre-allocate the whole file at the beginning, but expand the size as the content downloads.
+ - Reduce the request frequency to unreliable trackers.
+ - Only allow 5 concurrent checkSites to run in parallel to reduce load under Tor/slow connection.
+ - Stop site downloading if it reached 95% of site limit to avoid download loop for sites out of limit
+ - The pinned optional files won't be removed from download queue after 30 retries and won't be deleted even if the site owner removes it.
+ - Don't remove incomplete (downloading) sites on startup
+ - Remove --pin_bigfile argument as big files are automatically excluded from optional files limit.
+
+### Fixed
+ - Trayicon compatibility with latest gevent
+ - Request number counting for zero:// trackers
+ - Peer reputation boost for zero:// trackers.
+ - Blocklist of peers loaded from peerdb (Thanks tangdou1 for report)
+ - Sidebar map loading on foreign languages (Thx tangdou1 for report)
+ - FileGet on non-existent files (Thanks mcdev for reporting)
+ - Peer connecting bug for sites with low amount of peers
+
+#### "The Vacation" Sandbox escape bug [Reported by GitCenter / Krixano / ZeroLSTN]
+
+In ZeroNet 0.6.3 Rev3615 and earlier as a result of invalid file type detection, a malicious site could escape the iframe sandbox.
+
+Result: Browser iframe sandbox escape
+
+Applied fix: Replaced the previous, file extension based file type identification with a proper one.
+
+Affected versions: All versions before ZeroNet Rev3616
+
+
+## ZeroNet 0.6.3 (2018-06-26)
+### Added
+ - New plugin: ContentFilter that allows to have shared site and user block list.
+ - Support Tor meek proxies to avoid tracker blocking of GFW
+ - Detect network level tracker blocking and easy setting meek proxy for tracker connections.
+ - Support downloading 2GB+ sites as .zip (Thx to Radtoo)
+ - Support ZeroNet as a transparent proxy (Thx to JeremyRand)
+ - Allow fileQuery as CORS command (Thx to imachug)
+ - Windows distribution includes Tor and meek client by default
+ - Download sites as zip link to sidebar
+ - File server port randomization
+ - Implicit SSL for all connection
+ - fileList API command for zip files
+ - Auto download bigfiles size limit on sidebar
+ - Local peer number to the sidebar
+ - Open site directory button in sidebar
+
+### Changed
+ - Switched to Azure Tor meek proxy as Amazon one became unavailable
+ - Refactored/rewritten tracker connection manager
+ - Improved peer discovery for optional files without opened port
+ - Also delete Bigfile's piecemap on deletion
+
+### Fixed
+ - Important security issue: Iframe sandbox escape [Reported by Ivanq / gitcenter]
+ - Local peer discovery when running multiple clients on the same machine
+ - Uploading small files with Bigfile plugin
+ - Ctrl-c shutdown when running CLI commands
+ - High CPU/IO usage when Multiuser plugin enabled
+ - Firefox back button
+ - Peer discovery on older Linux kernels
+ - Optional file handling when multiple files have the same hash_id (first 4 chars of the hash)
+ - Msgpack 0.5.5 and 0.5.6 compatibility
+
+## ZeroNet 0.6.2 (2018-02-18)
+
+### Added
+ - New plugin: AnnounceLocal to make ZeroNet work without an internet connection on the local network.
+ - Allow dbQuey and userGetSettings using the `as` API command on different sites with Cors permission
+ - New config option: `--log_level` to reduce log verbosity and IO load
+ - Prefer to connect to recent peers from trackers first
+ - Mark peers with port 1 is also unconnectable for future fix for trackers that do not support port 0 announce
+
+### Changed
+ - Don't keep connection for sites that have not been modified in the last week
+ - Change unreliable trackers to new ones
+ - Send maximum 10 findhash request in one find optional files round (15sec)
+ - Change "Unique to site" to "No certificate" for default option in cert selection dialog.
+ - Dont print warnings if not in debug mode
+ - Generalized tracker logging format
+ - Only recover sites from sites.json if they had peers
+ - Message from local peers does not means internet connection
+ - Removed `--debug_gevent` and turned on Gevent block logging by default
+
+### Fixed
+ - Limit connections to 512 to avoid reaching 1024 limit on windows
+ - Exception when logging foreign operating system socket errors
+ - Don't send private (local) IPs on pex
+ - Don't connect to private IPs in tor always mode
+ - Properly recover data from msgpack unpacker on file stream start
+ - Symlinked data directory deletion when deleting site using Windows
+ - De-duplicate peers before publishing
+ - Bigfile info for non-existing files
+
+
+## ZeroNet 0.6.1 (2018-01-25)
+
+### Added
+ - New plugin: Chart
+ - Collect and display charts about your contribution to ZeroNet network
+ - Allow list as argument replacement in sql queries. (Thanks to imachug)
+ - Newsfeed query time statistics (Click on "From XX sites in X.Xs on ZeroHello)
+ - New UiWebsocket API command: As to run commands as other site
+ - Ranged ajax queries for big files
+ - Filter feed by type and site address
+ - FileNeed, Bigfile upload command compatibility with merger sites
+ - Send event on port open / tor status change
+ - More description on permission request
+
+### Changed
+ - Reduce memory usage of sidebar geoip database cache
+ - Change unreliable tracker to new one
+ - Don't display Cors permission ask if it already granted
+ - Avoid UI blocking when rebuilding a merger site
+ - Skip listing ignored directories on signing
+ - In Multiuser mode show the seed welcome message when adding new certificate instead of first visit
+ - Faster async port opening on multiple network interfaces
+ - Allow javascript modals
+ - Only zoom sidebar globe if mouse button is pressed down
+
+### Fixed
+ - Open port checking error reporting (Thanks to imachug)
+ - Out-of-range big file requests
+ - Don't output errors happened on gevent greenlets twice
+ - Newsfeed skip sites with no database
+ - Newsfeed queries with multiple params
+ - Newsfeed queries with UNION and UNION ALL
+ - Fix site clone with sites larger that 10MB
+ - Unreliable Websocket connection when requesting files from different sites at the same time
+
+
+## ZeroNet 0.6.0 (2017-10-17)
+
+### Added
+ - New plugin: Big file support
+ - Automatic pinning on Big file download
+ - Enable TCP_NODELAY for supporting sockets
+ - actionOptionalFileList API command arguments to list non-downloaded files or only big files
+ - serverShowdirectory API command arguments to allow to display site's directory in OS file browser
+ - fileNeed API command to initialize optional file downloading
+ - wrapperGetAjaxKey API command to request nonce for AJAX request
+ - Json.gz support for database files
+ - P2P port checking (Thanks for grez911)
+ - `--download_optional auto` argument to enable automatic optional file downloading for newly added site
+ - Statistics for big files and protocol command requests on /Stats
+ - Allow to set user limitation based on auth_address
+
+### Changed
+ - More aggressive and frequent connection timeout checking
+ - Use out of msgpack context file streaming for files larger than 512KB
+ - Allow optional files workers over the worker limit
+ - Automatic redirection to wrapper on nonce_error
+ - Send websocket event on optional file deletion
+ - Optimize sites.json saving
+ - Enable faster C-based msgpack packer by default
+ - Major optimization on Bootstrapper plugin SQL queries
+ - Don't reset bad file counter on restart, to allow easier give up on unreachable files
+ - Incoming connection limit changed from 1000 to 500 to avoid reaching socket limit on Windows
+ - Changed tracker boot.zeronet.io domain, because zeronet.io got banned in some countries
+
+#### Fixed
+ - Sub-directories in user directories
+
 ## ZeroNet 0.5.7 (2017-07-19)
 ### Added
  - New plugin: CORS to request read permission to other site's content

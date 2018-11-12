@@ -91,7 +91,7 @@ class ContentDb(Db):
             "size": size,
             "size_files": sum([val["size"] for key, val in content.get("files", {}).iteritems()]),
             "size_files_optional": sum([val["size"] for key, val in content.get("files_optional", {}).iteritems()]),
-            "modified": int(content["modified"])
+            "modified": int(content.get("modified", 0))
         }, {
             "site_id": self.site_ids.get(site.address, 0),
             "inner_path": inner_path
@@ -116,21 +116,23 @@ class ContentDb(Db):
         params = {"site_id": self.site_ids.get(site.address, 0)}
         if ignore:
             params["not__inner_path"] = ignore
-        res = self.execute("SELECT SUM(size) + SUM(size_files) AS size FROM content WHERE ?", params)
-        return res.fetchone()["size"]
+        res = self.execute("SELECT SUM(size) + SUM(size_files) AS size, SUM(size_files_optional) AS size_optional FROM content WHERE ?", params)
+        row = dict(res.fetchone())
 
-    def getOptionalSize(self, site):
-        res = self.execute(
-            "SELECT SUM(size_files_optional) AS size FROM content WHERE ?",
-            {"site_id": self.site_ids.get(site.address, 0)}
-        )
-        return res.fetchone()["size"]
+        if not row["size"]:
+            row["size"] = 0
+        if not row["size_optional"]:
+            row["size_optional"] = 0
 
-    def listModified(self, site, since):
-        res = self.execute(
-            "SELECT inner_path, modified FROM content WHERE site_id = :site_id AND modified > :since",
-            {"site_id": self.site_ids.get(site.address, 0), "since": since}
-        )
+        return row["size"], row["size_optional"]
+
+    def listModified(self, site, after=None, before=None):
+        params = {"site_id": self.site_ids.get(site.address, 0)}
+        if after:
+            params["modified>"] = after
+        if before:
+            params["modified<"] = before
+        res = self.execute("SELECT inner_path, modified FROM content WHERE ?", params)
         return {row["inner_path"]: row["modified"] for row in res}
 
 content_dbs = {}

@@ -1,6 +1,7 @@
-# ZeroNet [![Build Status](https://travis-ci.org/HelloZeroNet/ZeroNet.svg?branch=master)](https://travis-ci.org/HelloZeroNet/ZeroNet) [![Documentation](https://img.shields.io/badge/docs-faq-brightgreen.svg)](https://zeronet.readthedocs.org/en/latest/faq/) [![Help](https://img.shields.io/badge/keep_this_project_alive-donate-yellow.svg)](https://zeronet.readthedocs.org/en/latest/help_zeronet/donate/)
+# ZeroNet [![Build Status](https://travis-ci.org/HelloZeroNet/ZeroNet.svg?branch=master)](https://travis-ci.org/HelloZeroNet/ZeroNet) [![Documentation](https://img.shields.io/badge/docs-faq-brightgreen.svg)](https://zeronet.io/docs/faq/) [![Help](https://img.shields.io/badge/keep_this_project_alive-donate-yellow.svg)](https://zeronet.io/docs/help_zeronet/donate/)
 
 [简体中文](./README-zh-cn.md)
+[Русский](./README-ru.md)
 
 Decentralized websites using Bitcoin crypto and the BitTorrent network - https://zeronet.io
 
@@ -48,17 +49,17 @@ Decentralized websites using Bitcoin crypto and the BitTorrent network - https:/
   other peers.
 
 ####  [Slideshow about ZeroNet cryptography, site updates, multi-user sites »](https://docs.google.com/presentation/d/1_2qK1IuOKJ51pgBvllZ9Yu7Au2l551t3XBgyTSvilew/pub?start=false&loop=false&delayms=3000)
-####  [Frequently asked questions »](https://zeronet.readthedocs.org/en/latest/faq/)
+####  [Frequently asked questions »](https://zeronet.io/docs/faq/)
 
-####  [ZeroNet Developer Documentation »](https://zeronet.readthedocs.org/en/latest/site_development/getting_started/)
+####  [ZeroNet Developer Documentation »](https://zeronet.io/docs/site_development/getting_started/)
 
 
 ## Screenshots
 
 ![Screenshot](https://i.imgur.com/H60OAHY.png)
-![ZeroTalk](https://zeronet.readthedocs.org/en/latest/img/zerotalk.png)
+![ZeroTalk](https://zeronet.io/docs/img/zerotalk.png)
 
-#### [More screenshots in ZeroNet docs »](https://zeronet.readthedocs.org/en/latest/using_zeronet/sample_sites/)
+#### [More screenshots in ZeroNet docs »](https://zeronet.io/docs/using_zeronet/sample_sites/)
 
 
 ## How to join
@@ -66,8 +67,8 @@ Decentralized websites using Bitcoin crypto and the BitTorrent network - https:/
 * Download ZeroBundle package:
   * [Microsoft Windows](https://github.com/HelloZeroNet/ZeroNet-win/archive/dist/ZeroNet-win.zip)
   * [Apple macOS](https://github.com/HelloZeroNet/ZeroNet-mac/archive/dist/ZeroNet-mac.zip)
-  * [Linux 64bit](https://github.com/HelloZeroNet/ZeroBundle/raw/master/dist/ZeroBundle-linux64.tar.gz)
-  * [Linux 32bit](https://github.com/HelloZeroNet/ZeroBundle/raw/master/dist/ZeroBundle-linux32.tar.gz)
+  * [Linux 64-bit](https://github.com/HelloZeroNet/ZeroBundle/raw/master/dist/ZeroBundle-linux64.tar.gz)
+  * [Linux 32-bit](https://github.com/HelloZeroNet/ZeroBundle/raw/master/dist/ZeroBundle-linux32.tar.gz)
 * Unpack anywhere
 * Run `ZeroNet.exe` (win), `ZeroNet(.app)` (osx), `ZeroNet.sh` (linux)
 
@@ -87,13 +88,17 @@ It downloads the latest version of ZeroNet then starts it automatically.
 * `wget https://github.com/HelloZeroNet/ZeroNet/archive/master.tar.gz`
 * `tar xvpfz master.tar.gz`
 * `cd ZeroNet-master`
-* Start with `python zeronet.py`
+* Start with `python2 zeronet.py`
 * Open http://127.0.0.1:43110/ in your browser
+
+### [Whonix](https://www.whonix.org)
+
+* [Instructions](https://www.whonix.org/wiki/ZeroNet)
 
 ### [Arch Linux](https://www.archlinux.org)
 
 * `git clone https://aur.archlinux.org/zeronet.git`
-* `cd zeronet-git`
+* `cd zeronet`
 * `makepkg -srci`
 * `systemctl start zeronet`
 * Open http://127.0.0.1:43110/ in your browser
@@ -103,12 +108,14 @@ article](https://wiki.archlinux.org/index.php/ZeroNet) for further assistance.
 
 ### [Gentoo Linux](https://www.gentoo.org)
 
-* [`layman -a raiagent`](https://github.com/leycec/raiagent)
+* [`eselect repository enable raiagent`](https://github.com/leycec/raiagent)
+* `emerge --sync`
 * `echo '>=net-vpn/zeronet-0.5.4' >> /etc/portage/package.accept_keywords`
 * *(Optional)* Enable Tor support: `echo 'net-vpn/zeronet tor' >>
   /etc/portage/package.use`
 * `emerge zeronet`
 * `rc-service zeronet start`
+* *(Optional)* Enable zeronet at runlevel "default": `rc-update add zeronet`
 * Open http://127.0.0.1:43110/ in your browser
 
 See `/usr/share/doc/zeronet-*/README.gentoo.bz2` for further assistance.
@@ -125,29 +132,29 @@ See `/usr/share/doc/zeronet-*/README.gentoo.bz2` for further assistance.
 * `vagrant up`
 * Access VM with `vagrant ssh`
 * `cd /vagrant`
-* Run `python zeronet.py --ui_ip 0.0.0.0`
+* Run `python2 zeronet.py --ui_ip 0.0.0.0`
 * Open http://127.0.0.1:43110/ in your browser
 
 ### [Docker](https://www.docker.com/)
-* `docker run -d -v <local_data_folder>:/root/data -p 15441:15441 -p 127.0.0.1:43110:43110 nofish/zeronet`
+* `docker run -d -v <local_data_folder>:/root/data -p 26552:26552 -p 127.0.0.1:43110:43110 nofish/zeronet`
 * This Docker image includes the Tor proxy, which is disabled by default. Beware that some
 hosting providers may not allow you running Tor in their servers. If you want to enable it,
 set `ENABLE_TOR` environment variable to `true` (Default: `false`). E.g.:
 
- `docker run -d -e "ENABLE_TOR=true" -v <local_data_folder>:/root/data -p 15441:15441 -p 127.0.0.1:43110:43110 nofish/zeronet`
+ `docker run -d -e "ENABLE_TOR=true" -v <local_data_folder>:/root/data -p 26552:26552 -p 127.0.0.1:43110:43110 nofish/zeronet`
 * Open http://127.0.0.1:43110/ in your browser
 
 ### [Virtualenv](https://virtualenv.readthedocs.org/en/latest/)
 
 * `virtualenv env`
 * `source env/bin/activate`
-* `pip install msgpack-python gevent`
-* `python zeronet.py`
+* `pip install msgpack gevent`
+* `python2 zeronet.py`
 * Open http://127.0.0.1:43110/ in your browser
 
 ## Current limitations
 
-* No torrent-like file splitting for big file support
+* ~~No torrent-like file splitting for big file support~~ (big file support added)
 * ~~No more anonymous than Bittorrent~~ (built-in full Tor support added)
 * File transactions are not compressed ~~or encrypted yet~~ (TLS encryption added)
 * No private sites
@@ -171,7 +178,7 @@ $ zeronet.py
 Congratulations, you're finished! Now anyone can access your site using
 `http://localhost:43110/13DNDkMUExRf9Xa9ogwPKqp7zyHFEqbhC2`
 
-Next steps: [ZeroNet Developer Documentation](https://zeronet.readthedocs.org/en/latest/site_development/getting_started/)
+Next steps: [ZeroNet Developer Documentation](https://zeronet.io/docs/site_development/getting_started/)
 
 
 ## How can I modify a ZeroNet site?
@@ -201,12 +208,11 @@ Site:13DNDk..bhC2 Successfuly published to 3 peers
 ## Help keep this project alive
 
 - Bitcoin: 1QDhxQ6PraUZa21ET5fYUCPgdrwBomnFgX
-- Paypal: https://zeronet.readthedocs.org/en/latest/help_zeronet/donate/
-- Gratipay: https://gratipay.com/zeronet/
+- Paypal: https://zeronet.io/docs/help_zeronet/donate/
 
 ### Sponsors
 
-* Better OSX/Safari compatibility made possible by [BrowserStack.com](https://www.browserstack.com)
+* Better macOS/Safari compatibility made possible by [BrowserStack.com](https://www.browserstack.com)
 
 #### Thank you!
 

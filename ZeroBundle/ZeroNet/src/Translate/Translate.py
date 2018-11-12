@@ -26,7 +26,7 @@ class Translate(dict):
         translates.append(self)
 
     def setLanguage(self, lang):
-        self.lang = lang
+        self.lang = re.sub("[^a-z-]", "", lang)
         self.lang_file = self.lang_dir + "%s.json" % lang
         self.load()
 
@@ -34,9 +34,17 @@ class Translate(dict):
         return "<translate %s>" % self.lang
 
     def load(self):
-        if os.path.isfile(self.lang_file):
-            data = json.load(open(self.lang_file))
-            logging.debug("Loaded translate file: %s (%s entries)" % (self.lang_file, len(data)))
+        if self.lang == "en":
+            data = {}
+            dict.__init__(self, data)
+            self.clear()
+        elif os.path.isfile(self.lang_file):
+            try:
+                data = json.load(open(self.lang_file))
+                logging.debug("Loaded translate file: %s (%s entries)" % (self.lang_file, len(data)))
+            except Exception as err:
+                logging.error("Error loading translate file %s: %s" % (self.lang_file, err))
+                data = {}
             dict.__init__(self, data)
         else:
             data = {}

@@ -173,14 +173,13 @@ class ContentDbPlugin(object):
                 is_downloaded = 1
             else:
                 is_downloaded = 0
-            if site.address + "/" + file_inner_path in self.my_optional_files:
+            if site.address + "/" + content_inner_dir in self.my_optional_files:
                 is_pinned = 1
             else:
                 is_pinned = 0
             cur.insertOrUpdate("file_optional", {
                 "hash_id": hash_id,
-                "size": int(file["size"]),
-                "is_pinned": is_pinned
+                "size": int(file["size"])
             }, {
                 "site_id": site_id,
                 "inner_path": file_inner_path
@@ -188,7 +187,8 @@ class ContentDbPlugin(object):
                 "time_added": int(time.time()),
                 "time_downloaded": int(time.time()) if is_downloaded else 0,
                 "is_downloaded": is_downloaded,
-                "peer": is_downloaded
+                "peer": is_downloaded,
+                "is_pinned": is_pinned
             })
             self.optional_files[site_id][file_inner_path[-8:]] = 1
             num += 1
@@ -203,7 +203,7 @@ class ContentDbPlugin(object):
     def setContent(self, site, inner_path, content, size=0):
         super(ContentDbPlugin, self).setContent(site, inner_path, content, size=size)
         old_content = site.content_manager.contents.get(inner_path, {})
-        if (not self.need_filling or self.filled.get(site.address)) and "files_optional" in content or "files_optional" in old_content:
+        if (not self.need_filling or self.filled.get(site.address)) and ("files_optional" in content or "files_optional" in old_content):
             self.setContentFilesOptional(site, inner_path, content)
             # Check deleted files
             if old_content:
@@ -234,6 +234,8 @@ class ContentDbPlugin(object):
         num_site = 0
         for site in self.sites.values():
             if not site.content_manager.has_optional_files:
+                continue
+            if not site.settings["serving"]:
                 continue
             has_updated_hashfield = next((
                 peer
@@ -280,12 +282,12 @@ class ContentDbPlugin(object):
         self.log.debug("%s/%s peer number for %s site updated in %.3fs" % (num_updated, num_file, num_site, time.time() - s))
 
     def queryDeletableFiles(self):
-        # First return the files with atleast 10 seeder and not accessed in last weed
+        # First return the files with atleast 10 seeder and not accessed in last week
         query = """
             SELECT * FROM file_optional
-            WHERE peer > 10 AND is_downloaded = 1 AND is_pinned = 0
+            WHERE peer > 10 AND %s
             ORDER BY time_accessed < %s DESC, uploaded / size
-        """ % int(time.time() - 60 * 60 * 7)
+        """ % (self.getOptionalUsedWhere(), int(time.time() - 60 * 60 * 7))
         limit_start = 0
         while 1:
             num = 0
@@ -302,9 +304,9 @@ class ContentDbPlugin(object):
         # Then return files less seeder but still not accessed in last week
         query = """
             SELECT * FROM file_optional
-            WHERE is_downloaded = 1 AND peer <= 10 AND is_pinned = 0
+            WHERE peer <= 10 AND %s
             ORDER BY peer DESC, time_accessed < %s DESC, uploaded / size
-        """ % int(time.time() - 60 * 60 * 7)
+        """ % (self.getOptionalUsedWhere(), int(time.time() - 60 * 60 * 7))
         limit_start = 0
         while 1:
             num = 0
@@ -321,9 +323,9 @@ class ContentDbPlugin(object):
         # At the end return all files
         query = """
             SELECT * FROM file_optional
-            WHERE is_downloaded = 1 AND peer <= 10 AND is_pinned = 0
+            WHERE peer <= 10 AND %s
             ORDER BY peer DESC, time_accessed, uploaded / size
-        """
+        """ % self.getOptionalUsedWhere()
         limit_start = 0
         while 1:
             num = 0
@@ -343,6 +345,16 @@ class ContentDbPlugin(object):
             limit_bytes = float(re.sub("[^0-9.]", "", config.optional_limit)) * 1024 * 1024 * 1024
         return limit_bytes
 
+    def getOptionalUsedWhere(self):
+        maxsize = config.optional_limit_exclude_minsize * 1024 * 1024
+        return "is_downloaded = 1 AND is_pinned = 0 AND size < %s" % maxsize
+
+    def getOptionalUsedBytes(self):
+        size = self.execute("SELECT SUM(size) FROM file_optional WHERE %s" % self.getOptionalUsedWhere()).fetchone()[0]
+        if not size:
+            size = 0
+        return size
+
     def getOptionalNeedDelete(self, size):
         if config.optional_limit.endswith("%"):
             limit_percent = float(re.sub("[^0-9.]", "", config.optional_limit))
@@ -359,9 +371,7 @@ class ContentDbPlugin(object):
             self.log.debug("Invalid limit for optional files: %s" % limit)
             return False
 
-        size = self.execute("SELECT SUM(size) FROM file_optional WHERE is_downloaded = 1 AND is_pinned = 0").fetchone()[0]
-        if not size:
-            size = 0
+        size = self.getOptionalUsedBytes()
 
         need_delete = self.getOptionalNeedDelete(size)
 
@@ -385,7 +395,7 @@ class ContentDbPlugin(object):
             site.log.debug("Deleting %s %.3f MB left" % (row["inner_path"], float(need_delete) / 1024 / 1024))
             deleted_file_ids.append(row["file_id"])
             try:
-                site.content_manager.optionalRemove(row["inner_path"], row["hash_id"], row["size"])
+                site.content_manager.optionalRemoved(row["inner_path"], row["hash_id"], row["size"])
                 site.storage.delete(row["inner_path"])
                 need_delete -= row["size"]
             except Exception as err:

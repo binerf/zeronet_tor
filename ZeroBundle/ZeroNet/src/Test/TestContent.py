@@ -63,7 +63,7 @@ class TestContent:
         data = StringIO(json.dumps(data_dict))
         with pytest.raises(VerifyError) as err:
             site.content_manager.verifyFile("data/test_include/content.json", data, ignore_same=False)
-            assert "Include too large" in str(err)
+        assert "Include too large" in str(err)
 
         # Reset
         data_dict["files"]["data.json"]["size"] = 505
@@ -75,7 +75,7 @@ class TestContent:
         data = StringIO(json.dumps(data_dict))
         with pytest.raises(VerifyError) as err:
             site.content_manager.verifyFile("data/test_include/content.json", data, ignore_same=False)
-            assert "File not allowed" in str(err)
+        assert "File not allowed" in str(err)
 
         # Reset
         del data_dict["files"]["notallowed.exe"]
@@ -91,7 +91,7 @@ class TestContent:
         # Bad privatekey
         with pytest.raises(SignError) as err:
             site.content_manager.sign(inner_path, privatekey="5aaa3PvNm5HUWoCfSUfcYvfQ2g3PrRNJWr6Q9eqdBGu23mtMnaa", filewrite=False)
-            assert "Private key invalid" in str(err)
+        assert "Private key invalid" in str(err)
 
         # Good privatekey
         content = site.content_manager.sign(inner_path, privatekey=self.privatekey, filewrite=False)
@@ -131,6 +131,9 @@ class TestContent:
 
     def testFileInfo(self, site):
         assert "sha512" in site.content_manager.getFileInfo("index.html")
+        assert site.content_manager.getFileInfo("data/img/domain.png")["content_inner_path"] == "content.json"
+        assert site.content_manager.getFileInfo("data/users/hello.png")["content_inner_path"] == "data/users/content.json"
+        assert site.content_manager.getFileInfo("data/users/content.json")["content_inner_path"] == "data/users/content.json"
         assert not site.content_manager.getFileInfo("notexist")
 
         # Optional file
@@ -166,7 +169,7 @@ class TestContent:
         data = StringIO(json.dumps(data_dict))
         with pytest.raises(VerifyError) as err:
             site.content_manager.verifyFile(inner_path, data, ignore_same=False)
-            assert "Wrong site address" in str(err)
+        assert "Wrong site address" in str(err)
 
         # Wrong inner_path
         data_dict["address"] = "1TeSTvb4w2PWE81S2rEELgmX2GCCExQGT"
@@ -178,7 +181,7 @@ class TestContent:
         data = StringIO(json.dumps(data_dict))
         with pytest.raises(VerifyError) as err:
             site.content_manager.verifyFile(inner_path, data, ignore_same=False)
-            assert "Wrong inner_path" in str(err)
+        assert "Wrong inner_path" in str(err)
 
         # Everything right again
         data_dict["address"] = "1TeSTvb4w2PWE81S2rEELgmX2GCCExQGT"
@@ -218,25 +221,25 @@ class TestContent:
             data = StringIO(json.dumps(data_dict))
             with pytest.raises(VerifyError) as err:
                 site.content_manager.verifyFile(inner_path, data, ignore_same=False)
-                assert "Invalid relative path" in str(err)
+            assert "Invalid relative path" in str(err)
 
     @pytest.mark.parametrize("key", ["ignore", "optional"])
     def testSignUnsafePattern(self, site, key):
         site.content_manager.contents["content.json"][key] = "([a-zA-Z]+)*"
         with pytest.raises(UnsafePatternError) as err:
             site.content_manager.sign("content.json", privatekey=self.privatekey, filewrite=False)
-            assert "Potentially unsafe" in str(err)
+        assert "Potentially unsafe" in str(err)
 
 
     def testVerifyUnsafePattern(self, site):
         site.content_manager.contents["content.json"]["includes"]["data/test_include/content.json"]["files_allowed"] = "([a-zA-Z]+)*"
         with pytest.raises(UnsafePatternError) as err:
-            data = site.storage.open("data/test_include/content.json")
-            site.content_manager.verifyFile("data/test_include/content.json", data, ignore_same=False)
+            with site.storage.open("data/test_include/content.json") as data:
+                site.content_manager.verifyFile("data/test_include/content.json", data, ignore_same=False)
             assert "Potentially unsafe" in str(err)
 
         site.content_manager.contents["data/users/content.json"]["user_contents"]["permission_rules"]["([a-zA-Z]+)*"] = {"max_size": 0}
         with pytest.raises(UnsafePatternError) as err:
-            data = site.storage.open("data/users/1C5sgvWaSgfaTpV5kjBCnCiKtENNMYo69q/content.json")
-            site.content_manager.verifyFile("data/users/1C5sgvWaSgfaTpV5kjBCnCiKtENNMYo69q/content.json", data, ignore_same=False)
+            with site.storage.open("data/users/1C5sgvWaSgfaTpV5kjBCnCiKtENNMYo69q/content.json") as data:
+                site.content_manager.verifyFile("data/users/1C5sgvWaSgfaTpV5kjBCnCiKtENNMYo69q/content.json", data, ignore_same=False)
             assert "Potentially unsafe" in str(err)
