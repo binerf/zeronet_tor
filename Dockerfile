@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 MAINTAINER binerf <zeronet@mygaia.org>
 
@@ -19,7 +19,6 @@ RUN apt-get install \
 	python-gevent \
 	python-pip \
 	python-dev \
-	python-sqlalchemy \
 	sudo -y
 
 RUN pip install msgpack-python --upgrade
@@ -29,8 +28,8 @@ ADD ./ZeroBundle/ZeroNet /home/zeronet/ZeroNet
 VOLUME /home/zeronet/ZeroNet/data
 RUN chown -R zeronet:zeronet /home/zeronet
 
-RUN echo "deb     http://deb.torproject.org/torproject.org trusty main" > /etc/apt/sources.list.d/tor.list
-RUN echo "deb-src	http://deb.torproject.org/torproject.org trusty main" >> /etc/apt/sources.list.d/tor.list
+RUN echo "deb     http://deb.torproject.org/torproject.org bionic main" > /etc/apt/sources.list.d/tor.list
+RUN echo "deb-src	http://deb.torproject.org/torproject.org bionic main" >> /etc/apt/sources.list.d/tor.list
 RUN gpg --keyserver keys.gnupg.net --recv 886DDD89
 RUN gpg --export A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89 | sudo apt-key add -
 
