@@ -7,6 +7,7 @@ Create a file named *zeronet.conf* in your data folder on the host with contents
 ```
     [global]
     ui_password = password_you_want
+    ui_host = your_domain:43110
 ```
 
 # How to use this image
@@ -19,4 +20,4 @@ Then access to URL http://HOST_IP:43110/
 (possibility to configure an nginx instance as proxy in front of your zeronet container) 
 
 # Special
-* a specific user (*zeronet*) is created to run zeronet process and not root 
+* a specific user (*zeronet*) is created to run zeronet process and not root user.
