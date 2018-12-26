@@ -30,7 +30,7 @@ RUN chown -R zeronet:zeronet /home/zeronet
 
 RUN echo "deb     http://deb.torproject.org/torproject.org bionic main" > /etc/apt/sources.list.d/tor.list
 RUN echo "deb-src	http://deb.torproject.org/torproject.org bionic main" >> /etc/apt/sources.list.d/tor.list
-RUN gpg --keyserver keys.gnupg.net --recv 886DDD89
+RUN gpg --keyserver keyserver.ubuntu.com --recv 886DDD89
 RUN gpg --export A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89 | sudo apt-key add -
 
 # Update package lists
