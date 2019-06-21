@@ -16,6 +16,7 @@ RUN apt-get update -y
 # Install ZeroNet deps
 RUN apt-get install \
 	msgpack-python \
+	curl \
 	python-gevent \
 	python-pip \
 	python-dev \
@@ -30,8 +31,10 @@ RUN chown -R zeronet:zeronet /home/zeronet
 
 RUN echo "deb     http://deb.torproject.org/torproject.org bionic main" > /etc/apt/sources.list.d/tor.list
 RUN echo "deb-src	http://deb.torproject.org/torproject.org bionic main" >> /etc/apt/sources.list.d/tor.list
-RUN gpg --keyserver keyserver.ubuntu.com --recv 886DDD89
-RUN gpg --export A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89 | sudo apt-key add -
+#RUN gpg --keyserver keyserver.ubuntu.com --recv 886DDD89
+RUN curl https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc | gpg --import
+#RUN gpg --export A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89 | sudo apt-key add -
+RUN gpg --export A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89 | apt-key add -
 
 # Update package lists
 RUN apt-get update -y
@@ -55,6 +58,7 @@ RUN chmod 0755 /run.sh
 #Slimming down Docker containers
 RUN apt-get purge \
 	cpp \
+	curl \
 	build-essential \
 	eject \
 	g++-4.8 \
