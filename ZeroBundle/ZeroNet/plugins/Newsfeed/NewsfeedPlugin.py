@@ -4,6 +4,7 @@ import re
 from Plugin import PluginManager
 from Db import DbQuery
 from Debug import Debug
+from util import helper
 
 
 @PluginManager.registerTo("UiWebsocket")
@@ -66,14 +67,14 @@ class UiWebsocketPlugin(object):
                     query = " UNION ".join(query_parts)
 
                     if ":params" in query:
-                        query = query.replace(":params", ",".join(["?"] * len(params)))
-                        res = site.storage.query(query + " ORDER BY date_added DESC LIMIT %s" % limit, params * query_raw.count(":params"))
-                    else:
-                        res = site.storage.query(query + " ORDER BY date_added DESC LIMIT %s" % limit)
+                        query_params = map(helper.sqlquote, params)
+                        query = query.replace(":params", ",".join(query_params))
+
+                    res = site.storage.query(query + " ORDER BY date_added DESC LIMIT %s" % limit)
 
                 except Exception as err:  # Log error
                     self.log.error("%s feed query %s error: %s" % (address, name, Debug.formatException(err)))
-                    stats.append({"site": site.address, "feed_name": name, "error": str(err), "query": query})
+                    stats.append({"site": site.address, "feed_name": name, "error": str(err)})
                     continue
 
                 for row in res:
@@ -104,7 +105,7 @@ class UiWebsocketPlugin(object):
             filters = {}
         return [search_text, filters]
 
-    def actionFeedSearch(self, to, search):
+    def actionFeedSearch(self, to, search, limit=30, day_limit=30):
         if "ADMIN" not in self.site.settings["permissions"]:
             return self.response(to, "FeedSearch not allowed")
 
@@ -152,9 +153,14 @@ class UiWebsocketPlugin(object):
                     if filters.get("type") and filters["type"] not in query:
                         continue
 
+                    if day_limit:
+                        db_query.wheres.append(
+                            "%s > strftime('%%s', 'now', '-%s day')" % (db_query.fields.get("date_added", "date_added"), day_limit)
+                        )
+
                     # Order
                     db_query.parts["ORDER BY"] = "date_added DESC"
-                    db_query.parts["LIMIT"] = "30"
+                    db_query.parts["LIMIT"] = str(limit)
 
                     res = site.storage.query(str(db_query), params)
                 except Exception, err:

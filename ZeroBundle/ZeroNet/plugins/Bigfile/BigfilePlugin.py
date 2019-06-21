@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import collections
 import math
+import json
 
 import msgpack
 import gevent
@@ -96,12 +97,12 @@ class UiRequestPlugin(object):
 
             site.content_manager.contents.loadItem(file_info["content_inner_path"])  # reload cache
 
-        return {
+        return json.dumps({
             "merkle_root": merkle_root,
             "piece_num": len(piecemap_info["sha512_pieces"]),
             "piece_size": piece_size,
             "inner_path": inner_path
-        }
+        })
 
     def readMultipartHeaders(self, wsgi_input):
         for i in range(100):
@@ -604,9 +605,10 @@ class FileRequestPlugin(object):
         if file.read(10) == "\0" * 10:
             # Looks empty, but makes sures we don't have that piece
             file_info = site.content_manager.getFileInfo(inner_path)
-            piece_i = pos / file_info["piece_size"]
-            if not site.storage.piecefields[file_info["sha512"]][piece_i]:
-                return False
+            if "piece_size" in file_info:
+                piece_i = pos / file_info["piece_size"]
+                if not site.storage.piecefields[file_info["sha512"]][piece_i]:
+                    return False
         # Seek back to position we want to read
         file.seek(pos)
         return super(FileRequestPlugin, self).isReadable(site, inner_path, file, pos)
